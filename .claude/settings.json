@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": ["mcp__oliva_lab__*"],
+    "ask": [
+      "mcp__oliva_lab__lab_scope",
+      "mcp__oliva_lab__lab_program_activate"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "OLIVA_FRONTEND=claude python3 \"${CLAUDE_PROJECT_DIR}/scripts/codex_hook.py\" pre",
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "OLIVA_FRONTEND=claude python3 \"${CLAUDE_PROJECT_DIR}/scripts/codex_hook.py\" post",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+# Datos de cada ejecución y del operador: nunca van al repositorio.
+/scope.json
+/cases/
+/runs/
+/artifacts/
+/memory/
+/work/
+/recon/
+/cohort/
+/outputs/
+/programs/*
+!/programs/demo-program/
+
+# Configuración local y credenciales.
+/.codex/config.toml
+/.claude/settings.local.json
+/.env
+/.env.*
+*.sqlite3
+*.db
+*.pid
+*.enc
+*.pcap
+*.pcapng
+*.har
+
+# Python y archivos temporales.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

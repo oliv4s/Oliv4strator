@@ -1,0 +1,42 @@
+{
+  "schema_version": "0.1-draft",
+  "program_id": "demo-program",
+  "name": "Programa de demostración ficticio",
+  "state": "draft_not_enforced",
+  "default_decision": "deny",
+  "source": {
+    "raw_file": "source.txt",
+    "raw_sha256": "86bcadd6edd57ebcbce4f40227bfa5c3ffc0bca62d5fe97933fa9195a0af7ec2"
+  },
+  "operator_workflow": {
+    "goal": "minimal_reproducible_poc",
+    "confirmation": "one_or_two_decisive_checks_once_candidate_is_strong",
+    "after_confirmation": "stop_testing_this_finding_and_document",
+    "further_impact_validation": "only_after_separate_human_request",
+    "post_exploitation": "outside_default_workflow",
+    "report_submission": "manual_review"
+  },
+  "web_assets": [
+    {
+      "id": "demo_shop",
+      "kind": "exact_host_set",
+      "scheme": "https",
+      "hosts": ["shop.example.test"],
+      "application_boundary": "ecommerce_web_application_and_its_api_only",
+      "allowed_surfaces": ["ecommerce", "ecommerce_api"],
+      "unknown_application_surface": "ask_before_testing"
+    },
+    {
+      "id": "demo_api",
+      "kind": "exact_host_plus_subdomains",
+      "scheme": "https",
+      "base_host": "api.example.test",
+      "include_base_host": true,
+      "include_subdomains": true,
+      "application_boundary": "api"
+    }
+  ],
+  "required_http_headers": {
+    "user_agent_append": " demo-agent "
+  }
+}

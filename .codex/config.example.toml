@@ -1,0 +1,18 @@
+# Open this project on the Kali WSL2 host so the MCP server has VPN access.
+# Project configuration loads only after Codex trusts this folder.
+project_root_markers = []
+
+[mcp_servers.oliva_lab]
+command = "python3"
+args = ["codex_lab_mcp.py"]
+cwd = ".."
+required = true
+startup_timeout_sec = 15
+tool_timeout_sec = 960
+default_tools_approval_mode = "auto"
+
+[mcp_servers.oliva_lab.tools.lab_scope]
+approval_mode = "approve"
+
+[mcp_servers.oliva_lab.tools.lab_program_activate]
+approval_mode = "approve"

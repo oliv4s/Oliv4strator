@@ -1,0 +1,3 @@
+Programa de demostración ficticio. No autoriza pruebas en ningún sistema real.
+Activos de ejemplo: https://shop.example.test/ (solo comercio electrónico) y https://api.example.test/ con sus subdominios.
+El resto de destinos queda fuera del alcance. Toda política real debe prepararse a partir de las reglas vigentes del programa y recibir aprobación humana antes de activarse.
