@@ -12,7 +12,9 @@ import scope_target
 
 
 MAX_CANDIDATES = 200  # Output size limit, not a network request limit.
-JS_PATH = re.compile(r"['\"]((?:https?://[^'\"\s]+|/(?:api|graphql|v\d+|auth|account|checkout|cart|product)[^'\"\s]*))['\"]", re.I)
+JS_PATH = re.compile(r"(['\"`])((?:https?://[^'\"`\s\\]{1,300}|/(?!/)[A-Za-z0-9_~@%+./?&=:-]{1,200}))\1", re.I)
+STATIC_SUFFIXES = (".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                   ".ico", ".woff", ".woff2", ".ttf", ".map")
 
 
 class Links(HTMLParser):
@@ -68,7 +70,7 @@ def extract(policy: dict, source_url: str, body: str, content_type: str = "") ->
                                    "robots_" + key.strip().lower()))
         kind = "robots"
     elif "javascript" in content_type.lower() or path.endswith((".js", ".mjs")):
-        references = [(match.group(1), "javascript_literal") for match in JS_PATH.finditer(body)]
+        references = [(match.group(2), "javascript_literal") for match in JS_PATH.finditer(body)]
         kind = "javascript"
     seen: set[str] = set()
     candidates = []
@@ -82,6 +84,8 @@ def extract(policy: dict, source_url: str, body: str, content_type: str = "") ->
         joined = urljoin(source_url, raw)
         parsed = urlsplit(joined)
         if parsed.scheme not in {"http", "https"}:
+            continue
+        if kind == "javascript" and parsed.path.lower().endswith(STATIC_SUFFIXES):
             continue
         # Values in query strings may be tokens. Keep only parameter names.
         without_query = parsed._replace(query="", fragment="").geturl()

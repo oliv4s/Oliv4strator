@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Structured Kali actions for Oliva's local MCP; no shell interpreter."""
+"""Structured Kali actions for the OpenCode lab plugin; no shell interpreter."""
 
 from __future__ import annotations
 
@@ -424,7 +424,13 @@ def program_status() -> dict:
     policy, digest = program_policy.active(ROOT, current)
     limit = current.get("program_hourly_limit")
     return {"active": True, "program_id": program_id, "name": policy["name"],
-            "policy_sha256": digest, "country_hosts": len(policy["web_assets"][0].get("hosts", [])),
+            "program_type": policy.get("program_type", "bug_bounty"),
+            "policy_sha256": digest,
+            "web_assets": [{"id": item["id"], "kind": item["kind"]}
+                           for item in policy["web_assets"]],
+            "manual_assets": [item["id"] for item in policy.get("manual_assets", [])],
+            "participant_identity_configured": program_policy.operator_identity(ROOT, program_id, policy) is not None
+            if policy.get("required_http_headers", {}).get("user_agent_prefix_template") else False,
             "budget": program_policy.budget(ROOT, program_id, limit),
             "min_interval_seconds": current.get("program_min_interval_seconds", 0),
             "limitations": ["Solo lab_program_http aplica el User-Agent y los límites locales configurados",
@@ -447,9 +453,13 @@ def program_check(request: dict) -> dict:
 def activate_program(request: dict) -> dict:
     program_id = request.get("program_id")
     policy, digest = program_policy.load(ROOT, program_id)
+    program_policy.operator_identity(ROOT, program_id, policy)
     note = request.get("authorization_note")
-    if not isinstance(note, str) or not 8 <= len(note.strip()) <= 300:
-        raise ValueError("Describe tu autorización para este programa")
+    if note is not None and (not isinstance(note, str) or len(note) > 300):
+        raise ValueError("authorization_note debe ser texto de hasta 300 caracteres")
+    note = note.strip() if isinstance(note, str) else ""
+    if not note:
+        note = "Activación solicitada mediante lab_program_activate"
     limit = request.get("hourly_limit")
     if limit is not None and (type(limit) is not int or limit < 1):
         raise ValueError("hourly_limit debe ser un entero positivo si se configura")
@@ -465,7 +475,7 @@ def activate_program(request: dict) -> dict:
                  "target_ip": None, "target_url": None, "start_path": None,
                  "program_id": program_id, "program_policy_sha256": digest,
                  "program_hourly_limit": limit, "program_min_interval_seconds": interval,
-                 "authorization_note": note.strip()}
+                 "authorization_note": note}
     casebook.atomic_json(SCOPE, new_scope)
     identifier = scope_target.active_case_id(new_scope)
     if prior_id != identifier:
@@ -546,7 +556,24 @@ def program_http_request(request: dict, *, discovery: bool = False) -> dict:
         raise ValueError("Para POST describe por qué la acción no modifica datos ajenos")
     origin, path = scope_target.web_url(request["url"])
     host = urlsplit(origin).hostname
-    data = {"method": method, "path": path, "headers": request.get("headers"),
+    headers = request.get("headers")
+    if headers is not None and not isinstance(headers, dict):
+        raise ValueError("Cabeceras HTTP inválidas")
+    headers = dict(headers or {})
+    identity = program_policy.operator_identity(ROOT, current["program_id"], policy)
+    if identity:
+        requirements = policy["required_http_headers"]
+        username_header = requirements["username_header"]
+        user_agent = next((value for name, value in headers.items()
+                           if isinstance(name, str) and name.lower() == "user-agent"), "Oliv4strator/1")
+        if not isinstance(user_agent, str):
+            raise ValueError("User-Agent inválido")
+        headers = {name: value for name, value in headers.items()
+                   if isinstance(name, str) and name.lower() not in {"user-agent", username_header.lower()}}
+        headers["User-Agent"] = requirements["user_agent_prefix_template"].replace(
+            "{username}", identity["username"]) + user_agent
+        headers[username_header] = identity["username"]
+    data = {"method": method, "path": path, "headers": headers,
             "body": request.get("body", ""), "cookie": request.get("cookie"),
             "session": request.get("session"), "follow_redirects": False,
             "tls_verify": True, "save": False}
@@ -557,7 +584,8 @@ def program_http_request(request: dict, *, discovery: bool = False) -> dict:
     try:
         response = lab_http.request(ROOT, ARTIFACTS, host, 443, data,
                                     web_origin=origin, case_id=active_target_id(),
-                                    response_limit=65_536, text_limit=65_536 if discovery else 6_000,
+                                    response_limit=1_048_576 if discovery else 65_536,
+                                    text_limit=1_048_576 if discovery else 12_000,
                                     save_artifacts=False,
                                     user_agent_suffix=policy.get("required_http_headers", {}).get("user_agent_append", ""))
     finally:

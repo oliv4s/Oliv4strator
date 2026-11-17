@@ -65,11 +65,11 @@ Conecta primero la VPN del laboratorio en Kali y da al agente una IP o URL **aut
 
 > Oliva, esta IP de HTB está autorizada: `10.10.10.10`. Configura el alcance con `lab_scope`, revisa `lab_status` y `lab_attempts`, y continúa la investigación hasta verificar el objetivo. Registra lo que pruebes y evita repetir intentos sin nueva evidencia.
 
-Para un programa bug bounty, prepara localmente `programs/<id>/source.txt` y `policy.draft.json` con sus reglas y activos vigentes. Pide a Oliva que los revise y active con `lab_program_activate`. `programs/demo-program/` es un ejemplo **ficticio** que también usan las pruebas; no concede autorización de prueba real.
+Para un programa bug bounty, prepara `programs/<id>/source.txt` y `policy.draft.json` con sus reglas y activos vigentes. Pide a Oliva que los revise y active con `lab_program_activate`. `programs/demo-program/` es un ejemplo **ficticio**. `programs/cyberghost/` es un perfil público revisado para web/API de CyberGhost; sus apps y servidores VPN requieren un flujo distinto y no quedan habilitados por las herramientas HTTP.
 
 ## Qué entra en Git
 
-Se versionan el código, las instrucciones, las skills y los ejemplos. `.gitignore` excluye `scope.json`, `cases/`, `runs/`, `artifacts/`, `memory/`, `work/`, `outputs/`, los perfiles reales de `programs/`, credenciales y capturas. Puedes ejecutar Oliva y generar resultados desde el mismo clon sin añadirlos por accidente a un commit. Para mover un expediente o la memoria local a otro equipo, cópialos por un canal privado; las mejoras metodológicas que quieras compartir deben pasar a una skill.
+Se versionan el código, las instrucciones, las skills, los ejemplos y los perfiles públicos revisados. `.gitignore` excluye `scope.json`, `cases/`, `runs/`, `artifacts/`, `memory/`, `work/`, `outputs/`, los perfiles privados de `programs/`, credenciales y capturas. Puedes ejecutar Oliva y generar resultados desde el mismo clon sin añadirlos por accidente a un commit. Para mover un expediente o la memoria local a otro equipo, cópialos por un canal privado; las mejoras metodológicas que quieras compartir deben pasar a una skill.
 
 Comprueba el proyecto sin enviar tráfico:
 

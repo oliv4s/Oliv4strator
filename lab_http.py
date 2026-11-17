@@ -19,7 +19,10 @@ HEADER = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
 SESSION = re.compile(r"[A-Za-z0-9_-]{1,32}\Z")
 REDIRECTS = {301, 302, 303, 307, 308}
 SELECTED_HEADERS = {"content-type", "content-length", "location", "server", "www-authenticate",
-                    "x-powered-by", "cache-control", "retry-after"}
+                    "x-powered-by", "cache-control", "retry-after", "allow", "vary", "etag",
+                    "access-control-allow-origin", "access-control-allow-credentials",
+                    "access-control-allow-methods", "access-control-expose-headers",
+                    "content-security-policy", "x-frame-options", "x-content-type-options"}
 
 
 class BoundHTTPSConnection(http.client.HTTPSConnection):
@@ -104,6 +107,27 @@ def _update_cookies(jar: dict, key: str, response_headers: list[tuple[str, str]]
     return sorted(current)
 
 
+def _cookie_metadata(response_headers: list[tuple[str, str]]) -> list[dict]:
+    """Show cookie names and attributes without disclosing session values."""
+    result = []
+    for header, value in response_headers:
+        if header.lower() != "set-cookie":
+            continue
+        parsed = SimpleCookie()
+        try:
+            parsed.load(value)
+        except CookieError:
+            continue
+        for name, morsel in parsed.items():
+            if len(result) >= 30:
+                return result
+            result.append({"name": name[:100], "secure": bool(morsel["secure"]),
+                           "httponly": bool(morsel["httponly"]),
+                           "samesite": morsel["samesite"][:30],
+                           "path": morsel["path"][:100], "domain": morsel["domain"][:100]})
+    return result
+
+
 def request(root: Path, artifacts: Path, ip: str, port: int, data: dict, *,
             web_origin: str | None = None, case_id: str | None = None,
             response_limit: int = 8_000_000, text_limit: int = 12_000,
@@ -179,7 +203,10 @@ def request(root: Path, artifacts: Path, ip: str, port: int, data: dict, *,
             if truncated:
                 content = content[:response_limit]
             response_headers = response.getheaders()
-            cookie_names = _update_cookies(jar, key, response_headers) if key else []
+            cookie_details = _cookie_metadata(response_headers)
+            cookie_names = sorted({item["name"] for item in cookie_details})
+            if key:
+                _update_cookies(jar, key, response_headers)
             if session:
                 casebook.atomic_json(_jar_path(root, case_id or ip), jar)
             selected = {name.lower(): value[:300] for name, value in response_headers
@@ -187,7 +214,8 @@ def request(root: Path, artifacts: Path, ip: str, port: int, data: dict, *,
             result = {"port": port, "method": method, "path": path, "host": host, "tls": tls,
                       "status": response.status, "headers": selected, "bytes": len(content),
                       "text": content[:text_limit].decode("utf-8", "replace"),
-                      "cookie_names": cookie_names, "redirect_chain": redirects.copy()}
+                      "cookie_names": cookie_names, "cookie_attributes": cookie_details,
+                      "redirect_chain": redirects.copy()}
             if truncated:
                 result["response_capped"] = True
             if save_artifacts and (data.get("save") is True or len(content) > text_limit):

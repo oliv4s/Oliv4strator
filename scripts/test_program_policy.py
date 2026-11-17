@@ -192,7 +192,8 @@ class ProgramPolicyTests(unittest.TestCase):
                 sent["read_limit"] = amount
                 return b"x" * amount
             def getheaders(self):
-                return []
+                return [("Set-Cookie", "session=topsecret; HttpOnly; Secure; SameSite=Lax; Path=/"),
+                        ("Access-Control-Allow-Origin", "https://shop.example.test")]
 
         class FakeConnection:
             def __init__(self, *args, **kwargs):
@@ -213,8 +214,51 @@ class ProgramPolicyTests(unittest.TestCase):
         self.assertEqual(sent["headers"]["User-Agent"], "Custom demo-agent ")
         self.assertEqual(sum(key.lower() == "user-agent" for key in sent["headers"]), 1)
         self.assertEqual(sent["read_limit"], 101)
+        self.assertEqual(result["cookie_names"], ["session"])
+        self.assertTrue(result["cookie_attributes"][0]["httponly"])
+        self.assertEqual(result["headers"]["access-control-allow-origin"], "https://shop.example.test")
+        self.assertNotIn("topsecret", str(result))
         self.assertTrue(result["response_capped"])
         self.assertFalse((self.root / "artifacts").exists())
+
+    def test_program_identity_headers_are_applied_from_local_config(self):
+        policy_file = self.root / "programs" / self.program_id / "policy.draft.json"
+        policy = json.loads(policy_file.read_text(encoding="utf-8"))
+        policy["participant_email_domain"] = "imnotahacker.com"
+        policy["required_http_headers"] = {
+            "user_agent_prefix_template": "Secur0-{username}-",
+            "username_header": "X-Secur0-Username",
+        }
+        policy_file.write_text(json.dumps(policy), encoding="utf-8")
+        local = policy_file.parent / "operator.local.json"
+        with self.assertRaisesRegex(ValueError, "operator.local.json"):
+            program_policy.operator_identity(self.root, self.program_id, policy)
+        local.write_text(json.dumps({"username": "testhunter", "email_alias": "test@imnotahacker.com"}),
+                         encoding="utf-8")
+        originals = {name: getattr(lab_bridge, name) for name in
+                     ("ROOT", "SCOPE", "RUNS", "ARTIFACTS", "MEMORY", "ATTEMPTS")}
+        try:
+            lab_bridge.ROOT = self.root
+            lab_bridge.SCOPE = self.root / "scope.json"
+            lab_bridge.RUNS = self.root / "runs"
+            lab_bridge.ARTIFACTS = self.root / "artifacts"
+            lab_bridge.MEMORY = self.root / "memory"
+            lab_bridge.ATTEMPTS = self.root / "memory" / "attempts.jsonl"
+            lab_bridge.SCOPE.write_text("{}", encoding="utf-8")
+            lab_bridge.dispatch({"operation": "program_activate", "program_id": self.program_id,
+                                 "authorization_note": "Cuenta propia en un programa de prueba"})
+            fake = {"status": 200, "bytes": 2, "text": "ok", "headers": {}, "path": "/v1"}
+            with patch.object(lab_bridge.lab_http, "request", return_value=fake) as fetch:
+                lab_bridge.dispatch({"operation": "program_http", "url": "https://api.example.test/v1",
+                                     "method": "GET", "headers": {"user-agent": "ResearchClient/2",
+                                                                    "x-secur0-username": "wrong"}})
+            sent = fetch.call_args.args[4]["headers"]
+            self.assertEqual(sent["User-Agent"], "Secur0-testhunter-ResearchClient/2")
+            self.assertEqual(sent["X-Secur0-Username"], "testhunter")
+            self.assertNotIn("x-secur0-username", sent)
+        finally:
+            for name, value in originals.items():
+                setattr(lab_bridge, name, value)
 
 
 if __name__ == "__main__":

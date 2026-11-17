@@ -1,0 +1,122 @@
+{
+  "schema_version": "0.1-draft",
+  "program_id": "cyberghost",
+  "name": "CyberGhost - Bug Bounty Program",
+  "state": "draft_not_enforced",
+  "default_decision": "deny",
+  "source": {
+    "url": "https://yeswehack.com/programs/cyberghost-bug-bounty-program",
+    "checked_at": "2026-11-16",
+    "page_last_update": "2026-11-05",
+    "raw_file": "source.txt",
+    "raw_sha256": "9444176e412614cd745af4bebede7fe7e8e057746b03b4f9a257d93802582495"
+  },
+  "operator_workflow": {
+    "goal": "minimal_reproducible_poc",
+    "confirmation": "one_or_two_decisive_checks_once_candidate_is_strong",
+    "after_confirmation": "stop_testing_this_finding_and_document",
+    "further_impact_validation": "only_after_separate_human_request",
+    "post_exploitation": "outside_default_workflow",
+    "report_submission": "manual_review"
+  },
+  "web_assets": [
+    {
+      "id": "cyberghost_api",
+      "kind": "exact_host_set",
+      "scheme": "https",
+      "hosts": ["api.cyberghostvpn.com"],
+      "application_boundary": "all_routes"
+    },
+    {
+      "id": "cyberghost_com",
+      "kind": "exact_host_set",
+      "scheme": "https",
+      "hosts": ["cyberghost.com"],
+      "application_boundary": "all_routes"
+    },
+    {
+      "id": "cyberghost_app",
+      "kind": "exact_host_set",
+      "scheme": "https",
+      "hosts": ["cyberghost.app"],
+      "application_boundary": "all_routes"
+    },
+    {
+      "id": "cyberghost_com_subdomains",
+      "kind": "subdomains_only",
+      "scheme": "https",
+      "base_host": "cyberghost.com",
+      "include_base_host": false,
+      "include_subdomains": true,
+      "application_boundary": "all_routes"
+    },
+    {
+      "id": "cyberghostvpn_com_subdomains",
+      "kind": "subdomains_only",
+      "scheme": "https",
+      "base_host": "cyberghostvpn.com",
+      "include_base_host": false,
+      "include_subdomains": true,
+      "application_boundary": "all_routes"
+    }
+  ],
+  "manual_assets": [
+    {
+      "id": "cyberghost_vpn_servers",
+      "type": "other",
+      "scope_label": "CyberGhost VPN servers",
+      "eligibility": "Only endpoints exposed through official apps; screenshot of assigned IP and location required",
+      "http_tool_authorized": false
+    },
+    {
+      "id": "ios_app",
+      "type": "mobile_ios",
+      "reference": "https://apps.apple.com/us/app/id583009522",
+      "http_tool_authorized": false
+    },
+    {
+      "id": "android_app",
+      "type": "mobile_android",
+      "reference": "https://play.google.com/store/apps/details?id=de.mobileconcepts.cyberghost",
+      "http_tool_authorized": false
+    },
+    {
+      "id": "linux_app",
+      "type": "desktop_application",
+      "reference": "https://www.cyberghostvpn.com/en_US/apps/linux-vpn",
+      "http_tool_authorized": false
+    },
+    {
+      "id": "windows_app",
+      "type": "desktop_application",
+      "reference": "https://www.cyberghostvpn.com/en_US/apps/windows-vpn",
+      "http_tool_authorized": false
+    },
+    {
+      "id": "macos_app",
+      "type": "desktop_application",
+      "reference": "https://www.cyberghostvpn.com/en_US/apps/macos-vpn",
+      "http_tool_authorized": false
+    },
+    {
+      "id": "official_apps_extensions",
+      "type": "applications_extensions",
+      "reference": "https://www.cyberghostvpn.com/download",
+      "http_tool_authorized": false
+    }
+  ],
+  "required_http_headers": {
+    "user_agent_append": " -BugBounty-CyberGhost--31337 "
+  },
+  "program_rules": {
+    "active_scanners_with_high_traffic": "prohibited",
+    "denial_of_service_or_degradation": "prohibited",
+    "brute_force_vpn_servers": "prohibited",
+    "third_party_user_data": "do_not_copy_modify_or_destroy",
+    "compromised_accounts": "do_not_modify_or_use_for_further_hunting",
+    "personal_data_in_reports": "redact",
+    "public_disclosure": "prohibited",
+    "account_testing": "own_account_or_yeswehack_alias",
+    "vpn_server_tests": "official_app_endpoints_only_without_active_scanning"
+  }
+}

@@ -10,6 +10,8 @@
 /outputs/
 /programs/*
 !/programs/demo-program/
+!/programs/cyberghost/
+/programs/*/operator.local.json
 
 # Configuración local y credenciales.
 /.codex/config.toml

@@ -19,6 +19,9 @@ import scope_target
 
 
 PROGRAM_ID = re.compile(r"[a-z0-9][a-z0-9-]{2,79}\Z")
+OPERATOR_NAME = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
+HEADER_NAME = re.compile(r"[A-Za-z0-9-]{1,80}\Z")
+UA_PREFIX = re.compile(r"[A-Za-z0-9_.-]*\{username\}[A-Za-z0-9_.-]*\Z")
 
 
 class BudgetPause(ValueError):
@@ -41,6 +44,8 @@ def load(root: Path, program_id: str) -> tuple[dict, str]:
             policy.get("state") != "draft_not_enforced" or \
             policy.get("default_decision") != "deny":
         raise ValueError("Política de programa inválida o sin denegación por defecto")
+    if policy.get("program_type", "bug_bounty") not in {"bug_bounty", "vdp"}:
+        raise ValueError("Tipo de programa inválido")
     assets = policy.get("web_assets")
     if not isinstance(assets, list) or not assets:
         raise ValueError("La política no tiene activos web")
@@ -61,13 +66,13 @@ def load(root: Path, program_id: str) -> tuple[dict, str]:
                 if not isinstance(surfaces, list) or not surfaces or \
                         not all(isinstance(item, str) and item for item in surfaces):
                     raise ValueError("La superficie de aplicación debe quedar definida")
-        elif asset.get("kind") == "exact_host_plus_subdomains":
+        elif asset.get("kind") in {"exact_host_plus_subdomains", "subdomains_only"}:
             host = asset.get("base_host")
             if not isinstance(host, str) or \
                     scope_target.web_url("https://" + host)[0] != "https://" + host or \
-                    asset.get("include_base_host") is not True or \
+                    asset.get("include_base_host") is not (asset["kind"] == "exact_host_plus_subdomains") or \
                     asset.get("include_subdomains") is not True:
-                raise ValueError("Base de API inválida")
+                raise ValueError("Base de dominio inválida")
         else:
             raise ValueError("Tipo de activo no implementado")
     source = policy.get("source")
@@ -82,7 +87,35 @@ def load(root: Path, program_id: str) -> tuple[dict, str]:
     suffix = required_headers.get("user_agent_append", "")
     if not isinstance(suffix, str) or len(suffix) > 100 or "\r" in suffix or "\n" in suffix:
         raise ValueError("Identificador HTTP inválido")
+    prefix = required_headers.get("user_agent_prefix_template")
+    username_header = required_headers.get("username_header")
+    if prefix is not None or username_header is not None:
+        if not isinstance(prefix, str) or len(prefix) > 100 or not UA_PREFIX.fullmatch(prefix) or \
+                not isinstance(username_header, str) or not HEADER_NAME.fullmatch(username_header):
+            raise ValueError("Requisitos de identidad HTTP inválidos")
+        domain = policy.get("participant_email_domain")
+        if not isinstance(domain, str) or not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", domain):
+            raise ValueError("Dominio de alias de participante inválido")
     return policy, hashlib.sha256(raw).hexdigest()
+
+
+def operator_identity(root: Path, program_id: str, policy: dict) -> dict | None:
+    """Load local researcher identity only for profiles that require it."""
+    if not policy.get("required_http_headers", {}).get("user_agent_prefix_template"):
+        return None
+    path = policy_path(root, program_id).parent / "operator.local.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError("Falta operator.local.json válido para este programa") from error
+    username = data.get("username") if isinstance(data, dict) else None
+    email_alias = data.get("email_alias") if isinstance(data, dict) else None
+    domain = policy["participant_email_domain"]
+    if not isinstance(username, str) or not OPERATOR_NAME.fullmatch(username) or \
+            not isinstance(email_alias, str) or not re.fullmatch(
+                r"[A-Za-z0-9._%+-]{1,80}@" + re.escape(domain), email_alias, flags=re.I):
+        raise ValueError("Identidad local: username o email_alias inválidos")
+    return {"username": username, "email_alias": email_alias}
 
 
 def active(root: Path, scope: dict) -> tuple[dict, str]:
@@ -104,7 +137,8 @@ def evaluate(policy: dict, url: object, surface: object = None, basis: object = 
     for asset in policy["web_assets"]:
         kind = asset["kind"]
         matched = (host in asset["hosts"] if kind == "exact_host_set" else
-                   host == asset["base_host"] or host.endswith("." + asset["base_host"]))
+                   (kind == "exact_host_plus_subdomains" and host == asset["base_host"]) or
+                   host.endswith("." + asset["base_host"]))
         if not matched:
             continue
         result = {"url": origin + path, "host": host, "matched_asset": asset["id"]}
@@ -161,7 +195,7 @@ def reserve(root: Path, program_id: str, hourly_limit: int | None,
         used, last, oldest = connection.execute(
             "SELECT COUNT(*), MAX(at), MIN(at) FROM requests WHERE at > ?", (now - 3600,)).fetchone()
         if hourly_limit is not None and used >= hourly_limit:
-            raise BudgetPause("Presupuesto horario agotado", oldest + 3600 - now)
+            raise BudgetPause(f"Límite horario local configurado ({hourly_limit}) agotado", oldest + 3600 - now)
         if last and now - last < min_interval_seconds:
             raise BudgetPause("Intervalo mínimo entre peticiones", min_interval_seconds - (now - last))
         token = secrets.token_hex(16)

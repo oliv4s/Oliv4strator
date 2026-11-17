@@ -73,16 +73,16 @@ TOOLS = [
     tool("lab_program_check", "Comprueba una URL contra el perfil del programa sin enviar tráfico. Para tiendas regionales indica surface y basis.",
          {"program_id": S, "url": S, "surface": S,
           "basis": S}, ["url"], read_only=True),
-    tool("lab_program_activate", "Activa una política bug bounty versionada. El límite horario y el intervalo son opciones locales, no reglas del programa. Requiere aprobación humana en Codex.",
+    tool("lab_program_activate", "Activa una política bug bounty versionada. authorization_note es opcional y solo deja constancia del motivo; la aprobación humana de la herramienta autoriza el cambio. Omite hourly_limit y min_interval_seconds salvo petición expresa.",
          {"program_id": S, "authorization_note": S, "hourly_limit": I,
           "min_interval_seconds": I},
-         ["program_id", "authorization_note"]),
-    tool("lab_program_http", "Una petición HTTPS dentro del programa activo; aplica User-Agent, límites locales configurados y no sigue redirecciones.",
+         ["program_id"]),
+    tool("lab_program_http", "Una petición HTTPS dentro del programa activo; aplica los identificadores HTTP requeridos, límites locales configurados y no sigue redirecciones. Compara controles y variantes con efecto observable.",
          {"url": S, "method": S, "surface": S,
           "basis": S, "interaction": {"type": "string", "enum": ["non_mutating", "own_test_account"]},
           "headers": HEADERS, "cookie": S, "session": S, "body": S, "retry_reason": S},
          ["url", "method"]),
-    tool("lab_program_discover", "Hace un solo GET autorizado y extrae rutas de HTML, robots.txt, sitemaps o JS; no visita los enlaces encontrados.",
+    tool("lab_program_discover", "Hace un solo GET autorizado y extrae rutas de HTML, robots.txt, sitemaps o JS; no visita los enlaces encontrados. Usa las rutas observadas para ampliar hipótesis con criterio.",
          {"url": S, "surface": S, "basis": S, "headers": HEADERS,
           "cookie": S, "session": S, "retry_reason": S}, ["url"]),
     tool("lab_program_paths", "Comprueba hasta 30 rutas elegidas en un origen autorizado con GET/HEAD. Cada petición pasa por la política y se detiene ante 429/503.",
@@ -91,7 +91,7 @@ TOOLS = [
           "reason": S, "surface": S, "basis": S, "headers": HEADERS,
           "cookie": S, "session": S, "start_index": I, "retry_reason": S},
          ["base_url", "paths", "reason"]),
-    tool("lab_program_finding", "Documenta una PoC mínima verificada con uno o dos intentos decisivos y pasos completos; genera un borrador local para revisión manual.",
+    tool("lab_program_finding", "Documenta una candidata concreta ya verificada con uno o dos intentos decisivos y pasos completos; permite seguir investigando otras vías. Genera un borrador local para revisión manual.",
          {"title": S, "category": S, "affected_url": S, "surface": S, "basis": S,
           "proof": S, "impact_hypothesis": S, "technical_reproduction": S,
           "reproduction_steps": STRINGS,
@@ -158,7 +158,10 @@ def response(request: dict[str, Any]) -> dict | None:
                 "Solo opera el destino o programa autorizado en scope.json. Consulta lab_status.engagement_mode "
                 "y aplica el workflow del modo activo; "
                 "lab_scope y lab_program_activate requieren aprobación humana. En bug bounty usa "
-                "lab_program_check y lab_program_http para el tráfico HTTP. Consulta lab_attempts antes de repetir pruebas; "
+                "lab_program_check y lab_program_http para el tráfico HTTP. Explora varias hipótesis con controles; "
+                "limita a una o dos pruebas solo la verificación final de cada candidata fuerte. "
+                "El MCP aplica las cabeceras de identidad requeridas por el perfil. "
+                "Consulta lab_attempts antes de repetir pruebas; "
                 "lab_preflight verifica rutas y listeners de callback. El foco es orientativo. "
                 "Las acciones técnicas pasan por comprobaciones de alcance y puertos."
             )}}

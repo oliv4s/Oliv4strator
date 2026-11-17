@@ -49,6 +49,18 @@ class ProgramDiscoveryTests(unittest.TestCase):
         self.assertEqual(js["format"], "javascript")
         self.assertEqual(js["candidates"][0]["url"], "https://shop.example.test/api/products")
 
+    def test_javascript_routes_beyond_fixed_api_words(self):
+        js = program_discovery.extract(
+            self.policy, "https://api.example.test/assets/app.js",
+            'fetch("/dashboard/reports?id=secret123"); const asset="/assets/logo.png"; '
+            'const next=`/settings/profile`; const external="https://outside.example.test/x";',
+            "application/javascript")
+        urls = {row["url"] for row in js["candidates"]}
+        self.assertIn("https://api.example.test/dashboard/reports", urls)
+        self.assertIn("https://api.example.test/settings/profile", urls)
+        self.assertNotIn("https://api.example.test/assets/logo.png", urls)
+        self.assertNotIn("secret123", str(js))
+
 
 if __name__ == "__main__":
     unittest.main()
