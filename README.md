@@ -13,13 +13,22 @@ MCP local: codex_lab_mcp.py
        ▼
 Núcleo Python: alcance · pruebas · hipótesis · memoria · evidencias
        │
-       ├── lab_machine / web_challenge → investigación del laboratorio
-       └── bug_bounty → PoC mínima, borrador de hallazgo, revisión humana
+       ├── LAB → HTB, certificaciones y retos; objetivo y flags del prompt
+       ├── BB-Web → investigación web con PoC e informe
+       └── BB-Code → auditoría estática y dinámica de repositorios con PoC e informe
 ```
 
-Oliva consulta el estado y los intentos anteriores antes de probar otra vía, verifica listeners antes de conexiones de vuelta y registra evidencias en `cases/`. Un cambio de destino o la activación de un programa requiere aprobación humana. En bug bounty, las solicitudes HTTP pasan por la política local del programa; tras verificar un hallazgo, Oliva redacta los pasos para reproducirlo y se detiene en esa vía.
+Oliva consulta el estado y los intentos anteriores antes de probar otra vía, verifica listeners antes de conexiones de vuelta y registra evidencias en `cases/`. El prompt del usuario define el destino autorizado y el bridge actualiza el perfil con `lab_scope` o `lab_program_activate`, sin aprobaciones repetidas. `lab_evidence` permite incorporar observaciones hechas con shell o navegador. En BB-Web, el MCP aplica la política a sus solicitudes HTTP; las herramientas nativas quedan disponibles y el agente debe aplicar las reglas del programa al utilizarlas. En BB-Code, las pruebas de código se ejecutan localmente y `lab_code_finding` genera el borrador reproducible.
 
 Las skills enseñan métodos reutilizables, no soluciones por máquina. `memory/` conserva observaciones locales entre sesiones. Las mejoras generales se incorporan a `.agents/skills/` y se copian a Claude con `python3 scripts/sync_skills.py`.
+
+## Cómo aprende Oliva
+
+Cada ejecución deja intentos, controles, hipótesis y PoC en su expediente `cases/`. Al documentar un hallazgo web o de código, el bridge devuelve un `evidence_id`. Oliva revisa los resultados con `lab_review`, que señala `learning_candidates`, y usa `lab_method` para guardar o contrastar una pauta **transferible** en `memory/methods.json`. En BB-Code puede clasificarla como `code_review`. Una pauta nueva empieza como candidata; las observaciones posteriores pueden apoyarla o refutarla.
+
+Este aprendizaje es memoria y revisión de metodología, no entrenamiento de los pesos del modelo. `cases/` y `memory/` son locales e ignorados por Git. Si una mejora debe viajar a otros equipos, Oliva la resume y valida en una skill general de `.agents/skills/` durante la revisión de sesión; no copia una PoC específica como regla universal.
+
+Las instrucciones dadas en otra conversación de Codex no modifican por sí solas este proyecto. Para hacer permanente una regla de trabajo, hay que incorporarla a `AGENTS.md` o a una skill y sincronizar el proyecto al equipo donde se ejecuta Oliva.
 
 ## Instalación en Kali
 
@@ -33,7 +42,7 @@ cd ~/tools/oliv4strator
 python3 scripts/bootstrap.py
 ```
 
-El arranque crea `scope.json` vacío, comprueba el MCP, prepara `.codex/config.toml` con rutas de este equipo y sincroniza las skills de Claude. Repite `python3 scripts/bootstrap.py` después de clonar en otro PC. No sobrescribe un `scope.json` existente.
+El arranque crea `scope.json` vacío, comprueba el MCP, prepara `.codex/config.toml` con rutas de este equipo y sincroniza las skills de Claude. Repite `python3 scripts/bootstrap.py` después de clonar en otro PC **o actualizar esta versión**: migra las aprobaciones antiguas de `lab_scope` y `lab_program_activate` a automático sin sobrescribir `scope.json` ni `cases/`. Reinicia Codex o Claude para que recarguen el catálogo de herramientas.
 
 ### Codex CLI
 
@@ -65,7 +74,27 @@ Conecta primero la VPN del laboratorio en Kali y da al agente una IP o URL **aut
 
 > Oliva, esta IP de HTB está autorizada: `10.10.10.10`. Configura el alcance con `lab_scope`, revisa `lab_status` y `lab_attempts`, y continúa la investigación hasta verificar el objetivo. Registra lo que pruebes y evita repetir intentos sin nueva evidencia.
 
-Para un programa bug bounty, prepara `programs/<id>/source.txt` y `policy.draft.json` con sus reglas y activos vigentes. Pide a Oliva que los revise y active con `lab_program_activate`. `programs/demo-program/` es un ejemplo **ficticio**. `programs/cyberghost/` es un perfil público revisado para web/API de CyberGhost; sus apps y servidores VPN requieren un flujo distinto y no quedan habilitados por las herramientas HTTP.
+Para `BB-Web`, pega en el prompt las reglas y activos vigentes del programa. Oliva puede preparar `programs/<id>/source.txt` y `policy.draft.json`, revisarlos y activar el perfil con `lab_program_activate`. `programs/demo-program/` es un ejemplo **ficticio**. Los perfiles reales de `programs/` permanecen locales y fuera de Git; las apps y servidores VPN requieren otro flujo.
+
+Para `BB-Code`, pega las reglas, la URL exacta del repositorio y la ruta de tu checkout local. Oliva puede crear la política con `code_assets`; [demo-code](programs/demo-code/policy.draft.json) muestra la estructura sin autorizar ningún repositorio real. Si el programa solo contiene código, `web_assets` puede ser `[]`. Al activar indicará `profile="BB-Code"` y `checkout_path`; `lab_code_status` comprobará el remoto Git y la revisión local cuando existan. Usará shell para revisar código y ejecutar PoC locales; `lab_code_finding` guardará versión, ubicación, condiciones y pasos reproducibles. Un programa con activos web y código requiere elegir explícitamente `BB-Web` o `BB-Code`.
+
+El espacio de trabajo de BB-Code sigue esta estructura dentro de la carpeta del programa elegida por el usuario (`-VDP` para un VDP como Ort; usa el tipo real del programa en otros casos). El código original permanece limpio y los archivos de investigación se nombran y redactan en inglés:
+
+```text
+<program>-VDP/
+├── README.md
+├── source/<repository>/
+├── pocs/
+├── reports/
+├── outputs/
+└── candidates/
+```
+
+Prompts breves para cada perfil:
+
+- **LAB:** «Perfil LAB. Mi objetivo autorizado es `10.10.10.10`; obtén acceso, `user.txt` y `root.txt`. Fija el destino y trabaja de forma autónoma.»
+- **BB-Web:** «Perfil BB-Web. Estas son las reglas y activos del programa: [pegar texto]. Investiga el sitio dentro de ese alcance, verifica PoC de bajo impacto y prepara los informes; continúa con otras vías independientes.»
+- **BB-Code:** «Perfil BB-Code. El programa incluye `https://github.com/organizacion/repositorio`; el checkout está en `/home/kali/repositorio`. Estas son sus reglas: [pegar texto]. Audita código, confirma candidatos con PoC locales y prepara informes reproducibles.»
 
 ## Qué entra en Git
 

@@ -1,10 +1,6 @@
 {
   "permissions": {
-    "allow": ["mcp__oliva_lab__*"],
-    "ask": [
-      "mcp__oliva_lab__lab_scope",
-      "mcp__oliva_lab__lab_program_activate"
-    ]
+    "allow": ["mcp__oliva_lab__*"]
   },
   "hooks": {
     "PreToolUse": [

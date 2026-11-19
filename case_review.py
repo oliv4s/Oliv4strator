@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+import json
 import re
 
 import casebook
@@ -41,9 +42,26 @@ def summarize(root: Path, ip: str, attempts: list[dict]) -> dict:
         findings.append("Se repitieron muchas pruebas de claves o diccionarios; exige indicio de baja entropía y un límite de parada")
     if focus.get("exhausted"):
         findings.append("La línea de investigación superó el tiempo o acciones orientativos; revisa si hay evidencia nueva o conviene pivotar")
+    report_dir = casebook.case_dir(root, ip) / "findings"
+    reports = []
+    for path in sorted(report_dir.glob("f-*.json")) if report_dir.exists() else []:
+        try:
+            item = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(item, dict) and isinstance(item.get("finding_id"), str):
+            reports.append({key: item.get(key) for key in
+                            ("finding_id", "profile", "title", "category", "status")})
+    finding_events = {row.get("detail", {}).get("finding_id"): row["event_id"]
+                      for row in events if row.get("kind") in {"program_finding", "code_finding"}}
+    method_evidence = {row.get("detail", {}).get("evidence_id")
+                       for row in events if row.get("kind") == "method_feedback"}
+    learning_candidates = [{**item, "evidence_id": finding_events[item["finding_id"]]}
+                           for item in reports if item["finding_id"] in finding_events and
+                           finding_events[item["finding_id"]] not in method_evidence]
     return {
         "target_id": ip,
-        "target_ip": None if ip.startswith(("web-", "program-")) else ip,
+        "target_ip": None if ip.startswith(("web-", "program-", "code-")) else ip,
         "event_count": len(events),
         "shell_calls": len(shell),
         "lab_calls": len(lab),
@@ -56,6 +74,8 @@ def summarize(root: Path, ip: str, attempts: list[dict]) -> dict:
         "shell_duration_ms_sum": sum(row.get("detail", {}).get("duration_ms") or 0 for row in shell),
         "slow_event_ids": [row["event_id"] for row in slow],
         "method_feedback_count": sum(row.get("kind") == "method_feedback" for row in events),
+        "documented_findings": reports[-20:],
+        "learning_candidates": learning_candidates[-10:],
         "focus": focus,
         "crypto_guess_commands": len(repeated_crypto),
         "findings": findings,

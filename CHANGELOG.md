@@ -1,5 +1,15 @@
 # Historial de Oliv4strator
 
+## 2026-11-17 — Perfiles LAB, BB-Web y BB-Code
+
+- `lab_status.profile` muestra el perfil; los expedientes previos siguen siendo compatibles.
+- LAB acepta el destino indicado en el prompt sin notas obligatorias ni aprobaciones repetidas.
+- BB-Web conserva la política HTTP, permite herramientas nativas y puede citar su evidencia en las PoC.
+- BB-Code acepta repositorios exactos, checkout local, pruebas estáticas y dinámicas, y genera informes con `lab_code_finding`.
+- Los informes devuelven un `evidence_id`; `lab_review.learning_candidates` guía la promoción a métodos generales, incluida la fase `code_review`.
+- BB-Code adopta una estructura portable con `source`, `pocs`, `reports`, `outputs` y `candidates`, y artefactos en inglés.
+- Las aprobaciones de cambio de perfil pasan a automático al ejecutar `scripts/bootstrap.py`; el hook conserva hashes de pruebas nativas sin guardar sus salidas en programas.
+
 ## 2026-11-17 — Investigación bug bounty
 
 - El agente recorre hipótesis con controles y variantes observables; la PoC mínima limita la validación final de cada hallazgo, no la exploración completa.

@@ -10,7 +10,7 @@
 /outputs/
 /programs/*
 !/programs/demo-program/
-!/programs/cyberghost/
+!/programs/demo-code/
 /programs/*/operator.local.json
 
 # Configuración local y credenciales.

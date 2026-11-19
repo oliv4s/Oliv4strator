@@ -46,9 +46,10 @@ def load(root: Path, program_id: str) -> tuple[dict, str]:
         raise ValueError("Política de programa inválida o sin denegación por defecto")
     if policy.get("program_type", "bug_bounty") not in {"bug_bounty", "vdp"}:
         raise ValueError("Tipo de programa inválido")
-    assets = policy.get("web_assets")
-    if not isinstance(assets, list) or not assets:
-        raise ValueError("La política no tiene activos web")
+    assets = policy.get("web_assets", [])
+    code_assets = policy.get("code_assets", [])
+    if not isinstance(assets, list) or not isinstance(code_assets, list) or not (assets or code_assets):
+        raise ValueError("La política no tiene activos web ni repositorios")
     for asset in assets:
         if not isinstance(asset, dict) or asset.get("scheme") != "https":
             raise ValueError("Solo se admiten activos HTTPS en este perfil")
@@ -75,6 +76,15 @@ def load(root: Path, program_id: str) -> tuple[dict, str]:
                 raise ValueError("Base de dominio inválida")
         else:
             raise ValueError("Tipo de activo no implementado")
+    for asset in code_assets:
+        if not isinstance(asset, dict) or asset.get("kind") != "git_repository" or \
+                not isinstance(asset.get("id"), str) or not asset["id"] or \
+                not isinstance(asset.get("url"), str):
+            raise ValueError("Activo de código inválido")
+        origin, repo_path = scope_target.web_url(asset["url"])
+        if not origin.startswith("https://") or repo_path == "/" or "?" in repo_path or \
+                asset["url"] != origin + repo_path.rstrip("/") or len(repo_path.strip("/").split("/")) < 2:
+            raise ValueError("El repositorio debe ser una URL HTTPS exacta")
     source = policy.get("source")
     if not isinstance(source, dict):
         raise ValueError("Falta la procedencia de la política")
@@ -134,7 +144,7 @@ def evaluate(policy: dict, url: object, surface: object = None, basis: object = 
     if parsed.scheme != "https" or parsed.port is not None:
         return {"decision": "deny", "reason": "Este perfil solo cubre HTTPS en el puerto 443", "url": str(url)}
     host = parsed.hostname
-    for asset in policy["web_assets"]:
+    for asset in policy.get("web_assets", []):
         kind = asset["kind"]
         matched = (host in asset["hosts"] if kind == "exact_host_set" else
                    (kind == "exact_host_plus_subdomains" and host == asset["base_host"]) or
@@ -153,6 +163,17 @@ def evaluate(policy: dict, url: object, surface: object = None, basis: object = 
                 "surface": surface if kind == "exact_host_set" else "api"}
     return {"url": origin + path, "host": host, "decision": "deny",
             "reason": "No figura entre los activos web autorizados por el programa"}
+
+
+def evaluate_code(policy: dict, repository_url: object) -> dict:
+    origin, path = scope_target.web_url(repository_url)
+    candidate = origin + path.rstrip("/")
+    for asset in policy.get("code_assets", []):
+        if candidate == asset["url"]:
+            return {"decision": "allow", "repository_url": candidate,
+                    "matched_asset": asset["id"], "reason": "Repositorio explícito del programa"}
+    return {"decision": "deny", "repository_url": candidate,
+            "reason": "El repositorio no figura entre los activos autorizados"}
 
 
 def _db(root: Path, program_id: str) -> sqlite3.Connection:

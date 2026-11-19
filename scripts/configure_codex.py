@@ -49,7 +49,20 @@ def absolute_config(source: str) -> str:
                                  lambda _: f"{key} = {value}", section)
         if count != 1:
             raise ValueError(f"Falta la clave {key} en la configuración MCP")
-    return source[:start] + section + source[end:]
+    configured = source[:start] + section + source[end:]
+    for tool in ("lab_scope", "lab_program_activate"):
+        marker = f"[mcp_servers.oliva_lab.tools.{tool}]"
+        position = configured.find(marker)
+        if position < 0:
+            continue
+        section_end = configured.find("\n[", position + len(marker))
+        if section_end < 0:
+            section_end = len(configured)
+        tool_section = configured[position:section_end]
+        tool_section = re.sub(r'(?m)^approval_mode\s*=\s*"approve"\s*$',
+                              'approval_mode = "auto"', tool_section)
+        configured = configured[:position] + tool_section + configured[section_end:]
+    return configured
 
 
 def main() -> None:

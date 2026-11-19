@@ -1,0 +1,3 @@
+Ejemplo sintético de perfil BB-Code. Ningún repositorio real queda autorizado por este archivo.
+La URL https://github.com/example/fictional-library solo ilustra la forma de un activo de código.
+No ejecutar pruebas de red ni enviar reportes basados en este ejemplo.

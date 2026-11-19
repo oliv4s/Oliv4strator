@@ -84,7 +84,8 @@ def status(root: Path, target_id: str) -> dict:
     if state is None or not state.get("active"):
         return {"target_id": target_id, "active": False, "needs_focus": True,
                 "message": "Puedes abrir una línea con lab_focus si ayuda a organizar la investigación."}
-    used = len(_events_since(root, target_id, state["started_at"]))
+    used = sum(row["event_id"] != state.get("baseline_evidence_id")
+               for row in _events_since(root, target_id, state["started_at"]))
     remaining_calls = max(0, state["max_actions"] - used)
     remaining_seconds = max(0, int((_datetime(state["expires_at"]) - now()).total_seconds()))
     exhausted = remaining_calls == 0 or remaining_seconds == 0
@@ -190,6 +191,7 @@ def change(root: Path, target_id: str, request: dict) -> dict:
         previous["expires_at"] = stamp(now() + timedelta(minutes=EXTENSION_MINUTES))
         previous["max_actions"] = EXTENSION_ACTIONS
         previous["extensions"] = 1
+        previous["baseline_evidence_id"] = evidence_id
         casebook.atomic_json(path(root, target_id), previous)
         casebook.record_event(root, target_id, "focus", {"action": action,
                               "branch_key": previous["branch_key"], "evidence_id": evidence_id})

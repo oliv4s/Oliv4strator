@@ -16,6 +16,7 @@ import codex_hook
 import codex_lab_mcp
 import casebook
 import configure_codex
+import scope_target
 
 
 class CodexAdapterTests(unittest.TestCase):
@@ -36,7 +37,7 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in lines], [1, 2, 3])
         self.assertEqual(lines[0]["result"]["serverInfo"]["name"], "oliv4strator-lab")
         names = {row["name"] for row in lines[1]["result"]["tools"]}
-        self.assertEqual(len(names), 26)
+        self.assertEqual(len(names), 29)
         self.assertIn("lab_scope", names)
         self.assertIn("lab_attempts", names)
         self.assertIn("lab_preflight", names)
@@ -45,17 +46,21 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertIn("lab_program_paths", names)
         self.assertIn("lab_program_finding", names)
         self.assertIn("lab_program_findings", names)
+        self.assertIn("lab_code_finding", names)
+        self.assertIn("lab_evidence", names)
+        self.assertIn("lab_code_status", names)
         self.assertFalse(lines[2]["result"]["isError"])
         self.assertTrue(codex_lab_mcp.call("lab_scope", {"operation": "scope"})["isError"])
 
-    def test_codex_config_approves_only_scope(self):
-        config = tomllib.loads((ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"))
+    def test_codex_config_uses_auto_profile_switches(self):
+        current = (ROOT / ".codex" / "config.toml").read_text(encoding="utf-8")
+        configured = configure_codex.absolute_config(current)
+        config = tomllib.loads(configured)
         server = config["mcp_servers"]["oliva_lab"]
         self.assertEqual(server["default_tools_approval_mode"], "auto")
-        self.assertEqual(server["tools"]["lab_scope"]["approval_mode"], "approve")
-        self.assertEqual(server["tools"]["lab_program_activate"]["approval_mode"], "approve")
+        self.assertEqual(server["tools"]["lab_scope"]["approval_mode"], "auto")
+        self.assertEqual(server["tools"]["lab_program_activate"]["approval_mode"], "auto")
         self.assertIn(Path(server["command"]).stem, {"python", "python3"})
-        configured = configure_codex.absolute_config((ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"))
         absolute = tomllib.loads(configured)["mcp_servers"]["oliva_lab"]
         self.assertEqual(absolute["args"], [str(ROOT / "codex_lab_mcp.py")])
         self.assertEqual(absolute["cwd"], str(ROOT))
@@ -76,7 +81,11 @@ class CodexAdapterTests(unittest.TestCase):
                 codex_hook.handle("post", {**local, "tool_response": "sample"})
                 self.assertEqual(casebook.events(root, "10.10.10.10", 1)[0]["kind"], "shell")
                 (root / "scope.json").write_text(json.dumps({"program_id": "demo-program"}), encoding="utf-8")
-                self.assertEqual(codex_hook.handle("pre", local)["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIsNone(codex_hook.handle("pre", local))
+                codex_hook.handle("post", {**local, "tool_response": "secret-token"})
+                program_case = casebook.events(root, scope_target.active_case_id({"program_id": "demo-program"}), 1)[0]
+                self.assertNotIn("command", program_case["detail"])
+                self.assertNotIn("output_excerpt", program_case["detail"])
             finally:
                 codex_hook.ROOT = original
 

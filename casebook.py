@@ -17,11 +17,11 @@ STATUSES = {"open", "supported", "rejected", "confirmed"}
 
 
 def case_dir(root: Path, target_id: str) -> Path:
-    if re.fullmatch(r"(?:web|program)-[0-9a-f]{16}", target_id):
+    if re.fullmatch(r"(?:web|program|code)-[0-9a-f]{16}", target_id):
         return root / "cases" / target_id
     address = ipaddress.ip_address(target_id)
-    if address.version != 4 or not address.is_private or address.is_loopback:
-        raise ValueError("Caso fuera del laboratorio")
+    if address.version != 4 or address.is_loopback or address.is_unspecified or address.is_multicast:
+        raise ValueError("Dirección de caso inválida")
     return root / "cases" / str(address)
 
 
@@ -43,7 +43,7 @@ def record_event(root: Path, ip: str, kind: str, detail: dict) -> dict:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     event_id = stamp + "-" + uuid4().hex[:12]
     item = {"event_id": event_id, "at": now(), "target_id": ip,
-            "target_ip": None if ip.startswith(("web-", "program-")) else ip, "kind": kind, "detail": detail}
+            "target_ip": None if ip.startswith(("web-", "program-", "code-")) else ip, "kind": kind, "detail": detail}
     atomic_json(case_dir(root, ip) / "events" / (event_id + ".json"), item)
     return item
 
@@ -149,6 +149,6 @@ def change_hypothesis(root: Path, ip: str, request: dict, known_evidence: set[st
 def summary(root: Path, ip: str) -> dict:
     current = hypotheses(root, ip)
     counts = {state: sum(row["status"] == state for row in current) for state in STATUSES}
-    return {"target_id": ip, "target_ip": None if ip.startswith(("web-", "program-")) else ip, "counts": counts,
+    return {"target_id": ip, "target_ip": None if ip.startswith(("web-", "program-", "code-")) else ip, "counts": counts,
             "active_hypotheses": [row for row in current if row["status"] in {"open", "supported"}][-12:],
             "recent_events": events(root, ip, 12)}

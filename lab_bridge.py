@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 
 import casebook
 import case_review
+import code_checkout
 import focus_state
 import lab_http
 import method_memory
@@ -80,8 +81,8 @@ def valid_ip(value: object) -> str:
         ip = ipaddress.ip_address(value)
     except ValueError as exc:
         raise ValueError("IP inválida") from exc
-    if ip.version != 4 or not ip.is_private or ip.is_loopback or ip.is_unspecified or ip.is_multicast:
-        raise ValueError("El objetivo debe ser una IPv4 privada concreta del laboratorio")
+    if ip.version != 4 or ip.is_loopback or ip.is_unspecified or ip.is_multicast:
+        raise ValueError("El objetivo debe ser una IPv4 concreta indicada por el usuario")
     return str(ip)
 
 
@@ -374,8 +375,10 @@ def relevant_methods(technology: str | None = None, phase: str | None = None) ->
     else:
         names = {row.get("service", "").lower() for row in services().values()
                  if row.get("state") == "open"}
-        if scope().get("target_url") or scope().get("program_id"):
+        if scope().get("target_url") or scope_target.profile(scope()) == "BB-Web":
             names.add("http")
+        if scope_target.profile(scope()) == "BB-Code":
+            names.add("source-code")
         if (RUNS / "ssh_auth.json").exists():
             names.add("linux")
     return method_memory.relevant(ROOT, names, phase)
@@ -384,12 +387,15 @@ def relevant_methods(technology: str | None = None, phase: str | None = None) ->
 def set_scope(request: dict) -> dict:
     raw_ip, raw_url = request.get("ip"), request.get("url")
     if (raw_ip is None) == (raw_url is None):
-        raise ValueError("Indica exactamente una IP privada o una URL HTTP(S)")
+        raise ValueError("Indica exactamente una IP o una URL HTTP(S) del laboratorio")
     ip = valid_ip(raw_ip) if raw_ip is not None else None
     origin, start_path = scope_target.web_url(raw_url) if raw_url is not None else (None, None)
-    note = request.get("authorization_note", "")
-    if not isinstance(note, str) or not 8 <= len(note.strip()) <= 300:
-        raise ValueError("Describe la autorización del laboratorio")
+    note = request.get("authorization_note")
+    if note is not None and (not isinstance(note, str) or len(note) > 300):
+        raise ValueError("authorization_note debe ser texto de hasta 300 caracteres")
+    note = note.strip() if isinstance(note, str) else ""
+    if not note:
+        note = "Destino indicado por el usuario en el prompt"
     previous = scope()
     prior_id = scope_target.active_case_id(previous)
     identifier = ip or scope_target.web_case_id(origin)
@@ -403,16 +409,16 @@ def set_scope(request: dict) -> dict:
     if previous.get("target_ip") and prior_id != identifier:
         casebook.atomic_json(casebook.case_dir(ROOT, prior_id) / "services.json",
                              {"target_ip": prior_id, "ports": services()})
-    new_scope = {"engagement_mode": "lab_machine" if ip else "web_challenge",
+    new_scope = {"profile": "LAB", "engagement_mode": "lab_machine" if ip else "web_challenge",
                  "target_ip": ip, "target_url": origin, "start_path": start_path,
-                 "authorization_note": note.strip()}
+                 "authorization_note": note}
     casebook.atomic_json(SCOPE, new_scope)
     if prior_id != identifier:
         RUNS.mkdir(exist_ok=True)
         casebook.atomic_json(RUNS / "services.json", inventory)
         (RUNS / "ssh_auth.json").unlink(missing_ok=True)
     casebook.atomic_json(casebook.case_dir(ROOT, identifier) / "scope.json", new_scope)
-    return record("scope", {"authorization_note": note.strip(), "start_path": start_path})
+    return record("scope", {"profile": "LAB", "authorization_note": note, "start_path": start_path})
 
 
 def program_status() -> dict:
@@ -423,27 +429,38 @@ def program_status() -> dict:
         return {"active": False, "available_programs": available}
     policy, digest = program_policy.active(ROOT, current)
     limit = current.get("program_hourly_limit")
-    return {"active": True, "program_id": program_id, "name": policy["name"],
+    current_profile = scope_target.profile(current)
+    return {"active": True, "profile": current_profile, "program_id": program_id, "name": policy["name"],
             "program_type": policy.get("program_type", "bug_bounty"),
             "policy_sha256": digest,
             "web_assets": [{"id": item["id"], "kind": item["kind"]}
-                           for item in policy["web_assets"]],
+                           for item in policy.get("web_assets", [])],
+            "code_assets": [{"id": item["id"], "repository_url": item["url"]}
+                            for item in policy.get("code_assets", [])],
+            "checkout_path": current.get("checkout_path") if current_profile == "BB-Code" else None,
             "manual_assets": [item["id"] for item in policy.get("manual_assets", [])],
             "participant_identity_configured": program_policy.operator_identity(ROOT, program_id, policy) is not None
-            if policy.get("required_http_headers", {}).get("user_agent_prefix_template") else False,
+            if current_profile == "BB-Web" and
+            policy.get("required_http_headers", {}).get("user_agent_prefix_template") else False,
             "budget": program_policy.budget(ROOT, program_id, limit),
             "min_interval_seconds": current.get("program_min_interval_seconds", 0),
-            "limitations": ["Solo lab_program_http aplica el User-Agent y los límites locales configurados",
-                            "El hook bloquea Bash durante el programa; no sustituye un cortafuegos del sistema"]}
+            "limitations": (["Las cabeceras HTTP y límites locales se aplican en lab_program_http; "
+                              "las herramientas nativas siguen las reglas del programa por instrucciones"]
+                             if current_profile == "BB-Web" else
+                             ["Las pruebas locales del repositorio usan shell; no hay tráfico web autorizado por este perfil"])}
 
 
 def program_check(request: dict) -> dict:
     program_id = request.get("program_id") or scope().get("program_id")
     if not program_id:
         raise ValueError("Indica program_id o activa un programa")
+    if (request.get("url") is None) == (request.get("repository_url") is None):
+        raise ValueError("Indica exactamente una URL web o repository_url")
     policy, digest = program_policy.load(ROOT, program_id)
-    decision = program_policy.evaluate(policy, request.get("url"), request.get("surface"),
-                                       request.get("basis"))
+    decision = (program_policy.evaluate_code(policy, request["repository_url"])
+                if request.get("repository_url") is not None else
+                program_policy.evaluate(policy, request.get("url"), request.get("surface"),
+                                        request.get("basis")))
     return {"program_id": program_id, "policy_sha256": digest,
             "active": scope().get("program_id") == program_id and
                       scope().get("program_policy_sha256") == digest,
@@ -453,7 +470,43 @@ def program_check(request: dict) -> dict:
 def activate_program(request: dict) -> dict:
     program_id = request.get("program_id")
     policy, digest = program_policy.load(ROOT, program_id)
-    program_policy.operator_identity(ROOT, program_id, policy)
+    selected_profile = request.get("profile")
+    if selected_profile is None:
+        if policy.get("web_assets") and not policy.get("code_assets"):
+            selected_profile = "BB-Web"
+        elif policy.get("code_assets") and not policy.get("web_assets"):
+            selected_profile = "BB-Code"
+        else:
+            raise ValueError("El programa tiene activos web y código; indica profile=BB-Web o BB-Code")
+    if selected_profile not in {"BB-Web", "BB-Code"}:
+        raise ValueError("Usa profile=BB-Web o BB-Code")
+    if (selected_profile == "BB-Web" and not policy.get("web_assets")) or \
+            (selected_profile == "BB-Code" and not policy.get("code_assets")):
+        raise ValueError("El perfil elegido no tiene activos en la política")
+    if selected_profile == "BB-Web":
+        program_policy.operator_identity(ROOT, program_id, policy)
+    repository_url = request.get("repository_url")
+    checkout_path = request.get("checkout_path")
+    if selected_profile == "BB-Code":
+        if repository_url is None and len(policy["code_assets"]) == 1:
+            repository_url = policy["code_assets"][0]["url"]
+        if repository_url is None:
+            raise ValueError("Indica repository_url de uno de los activos de código")
+        decision = program_policy.evaluate_code(policy, repository_url)
+        if decision["decision"] != "allow":
+            raise ValueError(decision["reason"])
+        if not isinstance(checkout_path, str) or not checkout_path.strip():
+            raise ValueError("BB-Code requiere checkout_path del repositorio local")
+        checkout = Path(checkout_path).expanduser().resolve(strict=True)
+        if not checkout.is_dir():
+            raise ValueError("checkout_path debe ser una carpeta existente")
+        checkout_path = str(checkout)
+        repository_url = decision["repository_url"]
+        checkout_info = code_checkout.inspect(checkout, repository_url)
+        if checkout_info["matches_scope"] is False:
+            raise ValueError("El remoto origin del checkout no coincide con el repositorio autorizado")
+    elif repository_url is not None or checkout_path is not None:
+        raise ValueError("repository_url y checkout_path solo corresponden a BB-Code")
     note = request.get("authorization_note")
     if note is not None and (not isinstance(note, str) or len(note) > 300):
         raise ValueError("authorization_note debe ser texto de hasta 300 caracteres")
@@ -471,11 +524,14 @@ def activate_program(request: dict) -> dict:
     if previous.get("target_ip") and prior_id:
         casebook.atomic_json(casebook.case_dir(ROOT, prior_id) / "services.json",
                              {"target_ip": prior_id, "ports": services()})
-    new_scope = {"engagement_mode": "bug_bounty",
+    new_scope = {"profile": selected_profile,
+                 "engagement_mode": "bug_bounty" if selected_profile == "BB-Web" else "bug_bounty_code",
                  "target_ip": None, "target_url": None, "start_path": None,
                  "program_id": program_id, "program_policy_sha256": digest,
                  "program_hourly_limit": limit, "program_min_interval_seconds": interval,
                  "authorization_note": note}
+    if selected_profile == "BB-Code":
+        new_scope.update({"repository_url": repository_url, "checkout_path": checkout_path})
     casebook.atomic_json(SCOPE, new_scope)
     identifier = scope_target.active_case_id(new_scope)
     if prior_id != identifier:
@@ -483,7 +539,8 @@ def activate_program(request: dict) -> dict:
         casebook.atomic_json(RUNS / "services.json", {"target_ip": None, "program_id": program_id, "ports": {}})
         (RUNS / "ssh_auth.json").unlink(missing_ok=True)
     casebook.atomic_json(casebook.case_dir(ROOT, identifier) / "scope.json", new_scope)
-    return record("program_activate", {"program_id": program_id, "name": policy["name"],
+    return record("program_activate", {"profile": selected_profile,
+                                       "program_id": program_id, "name": policy["name"],
                                        "policy_sha256": digest, "hourly_limit": limit,
                                        "min_interval_seconds": interval})
 
@@ -547,13 +604,15 @@ def program_http_request(request: dict, *, discovery: bool = False) -> dict:
     if decision["decision"] != "allow":
         raise ValueError(decision["reason"] + "; consulta lab_program_check")
     method = "GET" if discovery else request.get("method", "GET")
-    if not isinstance(method, str) or method.upper() not in {"GET", "HEAD", "OPTIONS", "POST"}:
-        raise ValueError("En este programa solo se admiten GET, HEAD, OPTIONS y POST")
-    if method.upper() == "POST" and request.get("interaction") not in {"non_mutating", "own_test_account"}:
-        raise ValueError("Para POST indica interaction=non_mutating u own_test_account")
-    if method.upper() == "POST" and (not isinstance(request.get("basis"), str) or
-                                      len(request["basis"].strip()) < 12):
-        raise ValueError("Para POST describe por qué la acción no modifica datos ajenos")
+    if not isinstance(method, str) or method.upper() not in {"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"}:
+        raise ValueError("Método HTTP no admitido")
+    if method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+        allowed_interactions = ({"non_mutating", "own_test_account"} if method.upper() == "POST"
+                                else {"own_test_account"})
+        if request.get("interaction") not in allowed_interactions:
+            raise ValueError("Indica interaction=own_test_account para cambios en tu cuenta de prueba")
+        if not isinstance(request.get("basis"), str) or len(request["basis"].strip()) < 12:
+            raise ValueError("Explica el efecto esperado y por qué cumple las reglas del programa")
     origin, path = scope_target.web_url(request["url"])
     host = urlsplit(origin).hostname
     headers = request.get("headers")
@@ -803,16 +862,37 @@ def dispatch(request: dict) -> dict:
         return program_status()
     if operation == "program_check":
         return program_check(request)
+    if operation == "code_status":
+        current = scope()
+        if scope_target.profile(current) != "BB-Code":
+            raise ValueError("Activa primero un perfil BB-Code")
+        program_policy.active(ROOT, current)
+        return code_checkout.inspect(Path(current["checkout_path"]), current["repository_url"])
     if operation == "program_activate":
         return activate_program(request)
     if operation == "program_finding":
         current = scope()
+        if scope_target.profile(current) != "BB-Web":
+            raise ValueError("Usa lab_code_finding para hallazgos del perfil BB-Code")
         policy, _ = program_policy.active(ROOT, current)
         known = {row["attempt_id"] for row in recent_attempts(5000)}
+        known |= casebook.event_ids(ROOT, active_target_id())
         result = program_findings.add(ROOT, current, policy, request, known)
-        casebook.record_event(ROOT, active_target_id(), "program_finding",
-                              {"finding_id": result["finding_id"], "status": result["status"]})
-        return result
+        event = casebook.record_event(ROOT, active_target_id(), "program_finding",
+                                      {"finding_id": result["finding_id"], "status": result["status"]})
+        return {**result, "evidence_id": event["event_id"]}
+    if operation == "code_finding":
+        current = scope()
+        if scope_target.profile(current) != "BB-Code":
+            raise ValueError("Activa primero un perfil BB-Code")
+        policy, _ = program_policy.active(ROOT, current)
+        identifier = active_target_id()
+        known = {row["attempt_id"] for row in recent_attempts(5000)}
+        known |= casebook.event_ids(ROOT, identifier)
+        result = program_findings.add_code(ROOT, current, policy, request, known)
+        event = casebook.record_event(ROOT, identifier, "code_finding",
+                                      {"finding_id": result["finding_id"], "status": result["status"]})
+        return {**result, "evidence_id": event["event_id"]}
     if operation == "program_findings":
         current = scope()
         program_policy.active(ROOT, current)
@@ -823,10 +903,10 @@ def dispatch(request: dict) -> dict:
         if mode == "invalid":
             raise ValueError("scope.json contiene modos de trabajo incompatibles")
         workflow = (program_policy.active(ROOT, current)[0].get("operator_workflow", {})
-                    if mode == "bug_bounty" else
+                    if mode in {"bug_bounty", "bug_bounty_code"} else
                     {"goal": "user_defined_lab_objective"} if mode in {"lab_machine", "web_challenge"} else {})
         identifier = scope_target.active_case_id(current)
-        return {"engagement_mode": mode, "workflow": workflow,
+        return {"profile": scope_target.profile(current), "engagement_mode": mode, "workflow": workflow,
                 "scope": current, "services": list(services().values()) if identifier else [],
                 "recent_attempts": recent_attempts(100)[-15:],
                 "relevant_methods": relevant_methods() if identifier else [],
@@ -870,6 +950,19 @@ def dispatch(request: dict) -> dict:
         return {"recent_attempts": [], "methods": method_memory.relevant(ROOT, names, phase)}
     if operation == "text":
         return text_inspect(request)
+    if operation == "evidence":
+        identifier = active_target_id()
+        source = request.get("source")
+        if source not in {"browser", "shell", "local_test", "manual", "mcp"}:
+            raise ValueError("Indica source=browser, shell, local_test, manual o mcp")
+        observation = program_findings._text(request.get("observation"), "Observación", 12, 1200)
+        control = program_findings._text(request.get("control", "Sin control aún"), "Control", 3, 800)
+        event = casebook.record_event(ROOT, identifier, "observation", {
+            "source": source, "observation": observation, "control": control,
+            "provenance": ("datos aportados manualmente" if source == "manual" else
+                           "resumen declarado por el agente tras observar una herramienta")})
+        return {"evidence_id": event["event_id"], "target_id": identifier,
+                "observation": observation, "control": control}
     if operation == "learn":
         raise ValueError("lab_learn se retiró: usa lab_method para guardar decisiones reutilizables")
     if operation == "scope":
@@ -877,7 +970,9 @@ def dispatch(request: dict) -> dict:
     if operation not in ACTION_OPERATIONS:
         raise ValueError("Operación desconocida")
     active_target_id()
-    if operation in {"program_http", "program_discover"}:
+    if operation in {"program_http", "program_discover", "program_paths"}:
+        if scope_target.profile(scope()) != "BB-Web":
+            raise ValueError("Las herramientas web requieren un perfil BB-Web activo")
         program_policy.active(ROOT, scope())
     retry_reason = request.get("retry_reason")
     if retry_reason is not None and (not isinstance(retry_reason, str) or

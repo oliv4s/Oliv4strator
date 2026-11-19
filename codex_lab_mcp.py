@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Local stdio MCP adapter for the existing Oliv4strator Python core.
 
-Run this on the Kali WSL2 Codex host. It deliberately exposes no shell tool:
-all target actions pass through lab_bridge's scope and focus checks.
+Run this on the Kali WSL2 Codex host. Codex and Claude retain their native
+tools; this server supplies durable scope, evidence and reporting helpers.
 """
 
 from __future__ import annotations
@@ -55,27 +55,33 @@ TOOLS = [
           "status": {"type": "string", "enum": ["open", "supported", "rejected", "confirmed"]},
           "evidence_ids": STRINGS, "note": S}, ["action"]),
     tool("lab_memory", "Consulta métodos de pentesting reutilizables por tecnología o fase.",
-         {"technology": S, "phase": {"type": "string", "enum": ["recon", "enumeration", "validation", "initial_access", "post_access", "privilege_escalation"]}}, read_only=True),
+         {"technology": S, "phase": {"type": "string", "enum": ["recon", "enumeration", "validation", "code_review", "initial_access", "post_access", "privilege_escalation"]}}, read_only=True),
     tool("lab_text", "Lee o busca texto por páginas en archivos del proyecto y artifact:<id>.",
          {"source": S, "mode": {"type": "string", "enum": ["lines", "search"]},
           "start": I, "count": I, "query": S}, ["source"], read_only=True),
+    tool("lab_evidence", "Registra una observación ya obtenida con shell, navegador o prueba local, junto con su control, para citarla en hipótesis e informes. No ejecuta pruebas.",
+         {"source": {"type": "string", "enum": ["browser", "shell", "local_test", "manual", "mcp"]},
+          "observation": S, "control": S}, ["source", "observation"]),
     tool("lab_method", "Guarda o contrasta una decisión metodológica reutilizable con evidencia real.",
          {"action": {"type": "string", "enum": ["add", "observe"]}, "method_id": S,
-          "phase": {"type": "string", "enum": ["recon", "enumeration", "validation", "initial_access", "post_access", "privilege_escalation"]},
+          "phase": {"type": "string", "enum": ["recon", "enumeration", "validation", "code_review", "initial_access", "post_access", "privilege_escalation"]},
           "technology": S, "signal": S, "question": S, "test": S, "supports": S,
           "refutes": S, "next_if_supported": S, "next_if_refuted": S, "pitfall": S,
           "evidence_id": S, "result": {"type": "string", "enum": ["supported", "refuted", "inconclusive"]}},
          ["action", "evidence_id", "result"]),
-    tool("lab_scope", "Fija o cambia una IP privada o un origen web del laboratorio. Esta herramienta requiere aprobación humana en Codex.",
-         {"ip": S, "url": S, "authorization_note": S}, ["authorization_note"]),
+    tool("lab_scope", "Perfil LAB: fija o cambia la IP o URL exacta indicada por el usuario. La nota es opcional; el prompt del usuario define el destino.",
+         {"ip": S, "url": S, "authorization_note": S}),
     tool("lab_program_status", "Muestra programas disponibles, política activa, tráfico realizado y límites locales opcionales.",
          read_only=True),
-    tool("lab_program_check", "Comprueba una URL contra el perfil del programa sin enviar tráfico. Para tiendas regionales indica surface y basis.",
-         {"program_id": S, "url": S, "surface": S,
-          "basis": S}, ["url"], read_only=True),
-    tool("lab_program_activate", "Activa una política bug bounty versionada. authorization_note es opcional y solo deja constancia del motivo; la aprobación humana de la herramienta autoriza el cambio. Omite hourly_limit y min_interval_seconds salvo petición expresa.",
-         {"program_id": S, "authorization_note": S, "hourly_limit": I,
-          "min_interval_seconds": I},
+    tool("lab_code_status", "BB-Code: comprueba revisión Git y si el remoto origin del checkout coincide con el repositorio autorizado; no envía tráfico.",
+         read_only=True),
+    tool("lab_program_check", "Comprueba una URL web o repositorio contra la política del programa sin enviar tráfico.",
+         {"program_id": S, "url": S, "repository_url": S, "surface": S,
+          "basis": S}, read_only=True),
+    tool("lab_program_activate", "Activa BB-Web o BB-Code según la política. Para BB-Code indica checkout_path; el prompt del usuario define el programa autorizado. Omite límites locales salvo petición expresa.",
+         {"program_id": S, "profile": {"type": "string", "enum": ["BB-Web", "BB-Code"]},
+          "repository_url": S, "checkout_path": S, "authorization_note": S,
+          "hourly_limit": I, "min_interval_seconds": I},
          ["program_id"]),
     tool("lab_program_http", "Una petición HTTPS dentro del programa activo; aplica los identificadores HTTP requeridos, límites locales configurados y no sigue redirecciones. Compara controles y variantes con efecto observable.",
          {"url": S, "method": S, "surface": S,
@@ -100,6 +106,15 @@ TOOLS = [
           "technical_reproduction", "reproduction_steps", "confirming_attempt_ids"]),
     tool("lab_program_findings", "Lista o lee borradores locales de PoC del programa activo.",
          {"finding_id": S}, read_only=True),
+    tool("lab_code_finding", "BB-Code: guarda una PoC local reproducible con versión, ruta de código, condiciones, efecto observado y evidencia del expediente; genera borrador Markdown.",
+         {"title": S, "category": S, "repository_url": S, "affected_version": S,
+          "source_location": S, "conditions": S, "proof": S,
+          "impact_hypothesis": S, "technical_reproduction": S,
+          "reproduction_steps": STRINGS, "confirming_evidence_ids": STRINGS,
+          "related_advisories": S},
+         ["title", "category", "affected_version", "source_location", "conditions",
+          "proof", "impact_hypothesis", "technical_reproduction", "reproduction_steps",
+          "confirming_evidence_ids"]),
     tool("lab_scan", "Escanea puertos TCP de la IP aprobada; conserva el inventario previo.",
          {"ports": S, "retry_reason": S}, ["ports"]),
     tool("lab_http", "HTTP contra IP y puerto observados, con Host virtual y sesiones.",
@@ -135,8 +150,8 @@ def call(name: str, arguments: object) -> dict:
     if extra:
         return {"content": [{"type": "text", "text": f"Campos no admitidos: {', '.join(sorted(extra))}"}], "isError": True}
     operation = name.removeprefix("lab_")
-    # Never accept an operation value from arguments: scope has its own
-    # approval-controlled tool name in the Codex config.
+    # Never accept an operation value from arguments: callers can only invoke
+    # named MCP tools, not arbitrary bridge operations.
     try:
         data = lab_bridge.dispatch({"operation": operation, **arguments})
         return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
@@ -155,15 +170,16 @@ def response(request: dict[str, Any]) -> dict | None:
             "protocolVersion": "2025-06-18", "capabilities": {"tools": {"listChanged": False}},
             "serverInfo": {"name": "oliv4strator-lab", "version": "0.1.0"},
             "instructions": (
-                "Solo opera el destino o programa autorizado en scope.json. Consulta lab_status.engagement_mode "
-                "y aplica el workflow del modo activo; "
-                "lab_scope y lab_program_activate requieren aprobación humana. En bug bounty usa "
-                "lab_program_check y lab_program_http para el tráfico HTTP. Explora varias hipótesis con controles; "
+                "Solo opera el destino o programa indicado por el usuario y registrado en scope.json. "
+                "Consulta lab_status.profile: LAB, BB-Web o BB-Code. "
+                "En BB-Web usa la política del programa para todo el tráfico, incluso con herramientas nativas. "
+                "En BB-Code verifica repositorio y versión; prueba el código localmente con controles. "
+                "Explora varias hipótesis con controles; "
                 "limita a una o dos pruebas solo la verificación final de cada candidata fuerte. "
                 "El MCP aplica las cabeceras de identidad requeridas por el perfil. "
                 "Consulta lab_attempts antes de repetir pruebas; "
                 "lab_preflight verifica rutas y listeners de callback. El foco es orientativo. "
-                "Las acciones técnicas pasan por comprobaciones de alcance y puertos."
+                "Las herramientas nativas conservan la libertad de investigación y deben respetar el alcance."
             )}}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": identifier, "result": {}}

@@ -41,7 +41,10 @@ def current_scope() -> dict:
 
 def visible_scope_check(command: str, scope: dict) -> None:
     if scope.get("program_id"):
-        raise ValueError("En modo bug bounty usa lab_program_http y lab_text; shell queda deshabilitado en esta primera versión")
+        # Native tools are part of BB-Web and BB-Code. Program rules and asset
+        # boundaries are instructions; this regex hook cannot prove where an
+        # arbitrary script or browser request will send traffic.
+        return
     cli = NETWORK_CLI.search(command)
     coded = CODE_NETWORK.search(command)
     if not cli and not coded:
@@ -104,14 +107,16 @@ def handle(phase: str, item: dict) -> dict | None:
     if phase == "post" and target_id:
         output = item.get("tool_response")
         text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, default=str)
-        casebook.record_event(ROOT, target_id, "shell", {
+        detail = {
             "source": os.environ.get("OLIVA_FRONTEND", "codex"), "session_id": item.get("session_id"),
-            "command": redact(command)[:600],
             "command_sha256": hashlib.sha256(command.encode()).hexdigest(),
-            "output_excerpt": redact(text)[:1200],
             "output_bytes": len(text.encode()),
             "output_sha256": hashlib.sha256(text.encode()).hexdigest(),
-        })
+        }
+        if not scope.get("program_id"):
+            detail.update({"command": redact(command)[:600],
+                           "output_excerpt": redact(text)[:1200]})
+        casebook.record_event(ROOT, target_id, "shell", detail)
     return None
 
 

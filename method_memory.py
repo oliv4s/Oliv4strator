@@ -11,7 +11,7 @@ import re
 import casebook
 
 
-PHASES = {"recon", "enumeration", "validation", "initial_access", "post_access", "privilege_escalation"}
+PHASES = {"recon", "enumeration", "validation", "code_review", "initial_access", "post_access", "privilege_escalation"}
 RESULTS = {"supported", "refuted", "inconclusive"}
 METHOD_ID = re.compile(r"m-[0-9a-f]{12}\Z")
 TECHNOLOGY = re.compile(r"[a-z0-9][a-z0-9_.-]{1,39}\Z")

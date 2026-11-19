@@ -55,21 +55,52 @@ def web_case_id(origin: str) -> str:
 
 
 def engagement_mode(scope: dict) -> str:
+    selected_profile = profile(scope)
+    if selected_profile == "invalid":
+        return "invalid"
+    if selected_profile == "BB-Code":
+        return "bug_bounty_code"
+    if selected_profile == "BB-Web":
+        return "bug_bounty"
+    if selected_profile == "LAB":
+        return "lab_machine" if scope.get("target_ip") else "web_challenge"
+    return "unconfigured"
+
+
+def profile(scope: dict) -> str:
+    """Expose three user-facing profiles while accepting existing scope files."""
     selected = [bool(scope.get("program_id")), bool(scope.get("target_ip")), bool(scope.get("target_url"))]
     if sum(selected) > 1:
         return "invalid"
+    declared = scope.get("profile")
+    if declared is not None and declared not in {"LAB", "BB-Web", "BB-Code"}:
+        return "invalid"
+    if declared == "LAB" and not (selected[1] or selected[2]):
+        return "invalid"
+    if declared in {"BB-Web", "BB-Code"} and not selected[0]:
+        return "invalid"
+    if declared == "BB-Code" and not scope.get("repository_url"):
+        return "invalid"
+    if declared == "BB-Web" and scope.get("repository_url"):
+        return "invalid"
+    if (declared == "LAB" and selected[0]) or \
+            (declared in {"BB-Web", "BB-Code"} and (selected[1] or selected[2])):
+        return "invalid"
+    if declared:
+        return declared
     if selected[0]:
-        return "bug_bounty"
-    if selected[1]:
-        return "lab_machine"
-    if selected[2]:
-        return "web_challenge"
+        return "BB-Web"
+    if selected[1] or selected[2]:
+        return "LAB"
     return "unconfigured"
 
 
 def active_case_id(scope: dict) -> str | None:
     program_id = scope.get("program_id")
     if isinstance(program_id, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{2,79}", program_id):
+        if profile(scope) == "BB-Code":
+            repository = scope.get("repository_url", "")
+            return "code-" + hashlib.sha256((program_id + "\0" + repository).encode("utf-8")).hexdigest()[:16]
         return "program-" + hashlib.sha256(program_id.encode("utf-8")).hexdigest()[:16]
     ip = scope.get("target_ip")
     if isinstance(ip, str):

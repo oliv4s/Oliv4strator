@@ -1,0 +1,24 @@
+{
+  "schema_version": "0.1-draft",
+  "program_id": "demo-code",
+  "name": "Ejemplo sintético BB-Code",
+  "program_type": "bug_bounty",
+  "state": "draft_not_enforced",
+  "default_decision": "deny",
+  "source": {
+    "raw_file": "source.txt",
+    "raw_sha256": "72f1b4d3e84a90784187db671739c23454006e83605574cadf0669be39b60a99"
+  },
+  "web_assets": [],
+  "code_assets": [
+    {
+      "id": "fictional_library",
+      "kind": "git_repository",
+      "url": "https://github.com/example/fictional-library"
+    }
+  ],
+  "operator_workflow": {
+    "goal": "reproducible_local_poc",
+    "report_submission": "manual_review"
+  }
+}

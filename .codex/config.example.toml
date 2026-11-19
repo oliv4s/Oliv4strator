@@ -12,7 +12,7 @@ tool_timeout_sec = 960
 default_tools_approval_mode = "auto"
 
 [mcp_servers.oliva_lab.tools.lab_scope]
-approval_mode = "approve"
+approval_mode = "auto"
 
 [mcp_servers.oliva_lab.tools.lab_program_activate]
-approval_mode = "approve"
+approval_mode = "auto"
