@@ -78,6 +78,8 @@ Para `BB-Web`, pega en el prompt las reglas y activos vigentes del programa. Oli
 
 Para `BB-Code`, pega las reglas, la URL exacta del repositorio y la ruta de tu checkout local. Oliva puede crear la política con `code_assets`; [demo-code](programs/demo-code/policy.draft.json) muestra la estructura sin autorizar ningún repositorio real. Si el programa solo contiene código, `web_assets` puede ser `[]`. Al activar indicará `profile="BB-Code"` y `checkout_path`; `lab_code_status` comprobará el remoto Git y la revisión local cuando existan. Usará shell para revisar código y ejecutar PoC locales; `lab_code_finding` guardará versión, ubicación, condiciones y pasos reproducibles. Un programa con activos web y código requiere elegir explícitamente `BB-Web` o `BB-Code`.
 
+Al detectar una causa plausible en BB-Code, la skill `prior-art-triage` guía una comparación temprana con avisos y parches públicos. `lab_code_finding` exige registrar qué fuentes se revisaron y la relación con la causa detectada.
+
 El espacio de trabajo de BB-Code sigue esta estructura dentro de la carpeta del programa elegida por el usuario (`-VDP` para un VDP como Ort; usa el tipo real del programa en otros casos). El código original permanece limpio y los archivos de investigación se nombran y redactan en inglés:
 
 ```text

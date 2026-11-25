@@ -124,8 +124,8 @@ def add_code(root: Path, scope: dict, policy: dict, request: dict,
                                         "Comandos o código de reproducción", 20, 6000),
         "reproduction_steps": steps,
         "confirming_evidence_ids": evidence,
-        "related_advisories": _text(request.get("related_advisories", "No revisados"),
-                                    "Avisos relacionados", 3, 1200),
+        "related_advisories": _text(request.get("related_advisories"),
+                                    "Avisos relacionados y búsqueda previa", 30, 1200),
         "submission": "manual_review_pending",
     }
     folder = _folder(root, scope)

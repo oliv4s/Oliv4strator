@@ -114,7 +114,7 @@ TOOLS = [
           "related_advisories": S},
          ["title", "category", "affected_version", "source_location", "conditions",
           "proof", "impact_hypothesis", "technical_reproduction", "reproduction_steps",
-          "confirming_evidence_ids"]),
+           "confirming_evidence_ids", "related_advisories"]),
     tool("lab_scan", "Escanea puertos TCP de la IP aprobada; conserva el inventario previo.",
          {"ports": S, "retry_reason": S}, ["ports"]),
     tool("lab_http", "HTTP contra IP y puerto observados, con Host virtual y sesiones.",

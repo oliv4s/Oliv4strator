@@ -1,5 +1,11 @@
 # Historial de Oliv4strator
 
+## 2026-11-23 — Comprobación temprana de avisos públicos
+
+- La skill `prior-art-triage` compara causa raíz, código y versión con avisos, issues y parches públicos antes de profundizar en una PoC BB-Code.
+- `lab_code_finding` exige documentar la comparación; ya no genera borradores con el valor por defecto «No revisados».
+- La revisión de sesión trata las candidatas ya públicas como evidencia metodológica, aunque no produzcan un informe.
+
 ## 2026-11-17 — Perfiles LAB, BB-Web y BB-Code
 
 - `lab_status.profile` muestra el perfil; los expedientes previos siguen siendo compatibles.

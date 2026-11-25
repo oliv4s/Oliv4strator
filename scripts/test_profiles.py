@@ -80,7 +80,7 @@ class ThreeProfilesTests(unittest.TestCase):
         observation = lab_bridge.dispatch({"operation": "evidence", "source": "local_test",
                                            "observation": "The isolated parser returned a second header.",
                                            "control": "The fixed parser returned only the intended header."})
-        finding = lab_bridge.dispatch({
+        finding_request = {
             "operation": "code_finding", "title": "Untrusted input reaches a sensitive sink",
             "category": "input_validation", "affected_version": "v1.0.0",
             "source_location": "src/parser.go: ParseHeader",
@@ -91,7 +91,11 @@ class ThreeProfilesTests(unittest.TestCase):
             "reproduction_steps": ["Check out the affected version in a local folder.",
                                    "Run the isolated parser test with a negative control."],
             "confirming_evidence_ids": [event["event_id"], observation["evidence_id"]],
-            "related_advisories": "No related public advisory found in this synthetic test."})
+            "related_advisories": "No related public advisory found in this synthetic test."}
+        with self.assertRaisesRegex(ValueError, "Avisos relacionados"):
+            lab_bridge.dispatch({key: value for key, value in finding_request.items()
+                                 if key != "related_advisories"})
+        finding = lab_bridge.dispatch(finding_request)
         self.assertTrue(Path(finding["report_file"]).exists())
         self.assertEqual(lab_bridge.dispatch({"operation": "program_findings"})["total"], 1)
         self.assertEqual(lab_bridge.dispatch({"operation": "review"})["learning_candidates"][0]["evidence_id"],
