@@ -13,6 +13,8 @@ import sys
 from typing import Any
 
 import lab_bridge
+import oliva_context
+import oliva_mcp_catalog
 
 
 def schema(properties: dict[str, dict] | None = None, required: list[str] | None = None) -> dict:
@@ -35,6 +37,9 @@ def tool(name: str, description: str, properties: dict | None = None,
 
 
 TOOLS = [
+    # OLIVA_OPTIMIZER_V1
+    tool("oliva_context", "Snapshot compacto del caso con presupuesto estimado de tokens; no ejecuta acciones.",
+         {"max_tokens": I}, read_only=True),
     tool("lab_status", "Estado del destino, servicios, intentos y foco. Empieza aquí.", read_only=True),
     tool("lab_case", "Expediente del destino activo con hipótesis y eventos recientes.", read_only=True),
     tool("lab_attempts", "Historial compacto de pruebas del destino activo. Consulta antes de repetir una sonda o tras compactar contexto.",
@@ -141,19 +146,24 @@ BY_NAME = {item["name"]: item for item in TOOLS}
 
 
 def call(name: str, arguments: object) -> dict:
-    if name not in BY_NAME:
+    canonical = oliva_mcp_catalog.canonical_name(name)
+    if name not in {item["name"] for item in oliva_mcp_catalog.visible(TOOLS)}:
         return {"content": [{"type": "text", "text": f"Herramienta desconocida: {name}"}], "isError": True}
     if not isinstance(arguments, dict):
         return {"content": [{"type": "text", "text": "Argumentos JSON inválidos"}], "isError": True}
-    allowed = set(BY_NAME[name]["inputSchema"]["properties"])
+    allowed = set(BY_NAME[canonical]["inputSchema"]["properties"])
     extra = set(arguments) - allowed
     if extra:
         return {"content": [{"type": "text", "text": f"Campos no admitidos: {', '.join(sorted(extra))}"}], "isError": True}
-    operation = name.removeprefix("lab_")
+    operation = canonical.removeprefix("lab_")
     # Never accept an operation value from arguments: callers can only invoke
     # named MCP tools, not arbitrary bridge operations.
     try:
-        data = lab_bridge.dispatch({"operation": operation, **arguments})
+        if name == "oliva_context":
+            data = oliva_context.compact_status(
+                lab_bridge.dispatch({"operation": "status"}), arguments.get("max_tokens", 550))
+        else:
+            data = lab_bridge.dispatch({"operation": operation, **arguments})
         return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                 "isError": False}
     except (OSError, ValueError, RuntimeError, KeyError, sqlite3.Error) as error:
@@ -184,7 +194,7 @@ def response(request: dict[str, Any]) -> dict | None:
     if method == "ping":
         return {"jsonrpc": "2.0", "id": identifier, "result": {}}
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": identifier, "result": {"tools": TOOLS}}
+        return {"jsonrpc": "2.0", "id": identifier, "result": {"tools": oliva_mcp_catalog.visible(TOOLS)}}
     if method == "tools/call":
         params = request.get("params") or {}
         result = call(params.get("name", ""), params.get("arguments", {}))

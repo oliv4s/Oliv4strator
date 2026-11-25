@@ -111,3 +111,11 @@ git status --short
 ```
 
 El historial de cambios del proyecto está en [CHANGELOG.md](CHANGELOG.md).
+
+## Optional context optimizer
+
+This checkout can use the read-only `oliva_context(max_tokens=550)` MCP tool for a bounded session snapshot. In `AGENTS.md`, the always-loaded instructions route the agent to a single on-demand profile: `harness/profiles/lab.md`, `bb-web.md` or `bb-code.md`. Original instructions are archived at `harness/reference/AGENTS.original.md` for review. The snapshot never replaces program-policy checks or explicit approval.
+
+For a smaller MCP *discovery catalog*, launch the CLI with `OLIVA_MCP_PROFILE=LAB`, `BB-Web` or `BB-Code`; leave it unset for full backward compatibility. Restart Codex/Claude and its MCP server when changing the profile. Filtering tools from discovery does **not** enforce scope on shell or browser commands.
+
+Use `python3 oliva_eval.py examples/benchmark-harness.json` for a synthetic, offline baseline-versus-candidate quality and token-cost comparison. Actual token savings on real tasks must be measured using the model provider's token accounting. No lesson or skill is promoted automatically.
