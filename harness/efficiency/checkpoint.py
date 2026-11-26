@@ -54,17 +54,21 @@ def save(repo: Path, case_id: str, payload: dict, expected_revision: int | None 
     revision = previous.get("revision", 0)
     if expected_revision is not None and (type(expected_revision) is not int or revision != expected_revision):
         raise ValueError("checkpoint revision mismatch; refresh before writing")
+    rows = {k: _rows(payload.get(k, []), k) for k in ("facts", "decisions", "pending")}
+    # Compare only meaningful state, excluding revision and timestamp. A save with
+    # identical meaning must not increase revisions or rewrite the file.
+    if previous and previous.get("state") == state and all(previous.get(k) == v for k, v in rows.items()):
+        return {"case_id": safe_id(case_id), "revision": revision, "state": state,
+                "changed": False, "counts": {k: len(v) for k, v in rows.items()}}
     record = {
         "schema": "oliva-checkpoint-v2", "case_id": safe_id(case_id),
         "revision": revision + 1, "updated_at": utc_now(), "state": state,
-        "facts": _rows(payload.get("facts", []), "facts"),
-        "decisions": _rows(payload.get("decisions", []), "decisions"),
-        "pending": _rows(payload.get("pending", []), "pending"),
+        **rows,
         "authorization": "not_granted_by_checkpoint",
     }
     atomic_json(path, record)
     return {"case_id": record["case_id"], "revision": record["revision"], "state": state,
-            "counts": {k: len(record[k]) for k in ("facts", "decisions", "pending")}}
+            "changed": True, "counts": {k: len(record[k]) for k in ("facts", "decisions", "pending")}}
 
 
 def load(repo: Path, case_id: str, mode: str = "summary", max_items: int = 10) -> dict:

@@ -42,3 +42,55 @@ To compare model/client baselines, keep task, objective, authorized scope, tool 
 - `work/efficiency/` should be ignored by Git; it contains potentially sensitive engagement identifiers and analyst notes. Run `git status` before every commit.
 - The v2 installer refuses `main`, a dirty worktree, unexpected anchors, existing files and a different optional `--expected-head` SHA. It backs up original files in ignored `work/efficiency-v2-upgrade-backup/` and supports rollback until edited.
 - This is a **source-compatible overlay**, not a confirmed remote commit. Run the repo's existing tests and a live MCP handshake on your own feature branch before pushing.
+
+## Efficiency measurement v3 (offline, general-purpose)
+
+**Why:** the first two DeepSeek Flash runs were different tasks. The second one completed
+its objective for a *user-reported* $0.51, but their relative token consumption
+cannot establish a causal improvement by the harness. In particular, native Codex
+`exec_command`, `write_stdin`, and `view_image` remain outside the MCP layer.
+
+### Checkpoint deduplication
+
+`oliva_checkpoint` now returns `changed: false` and the unchanged revision for a
+semantically identical save, instead of writing another checkpoint. An explicit,
+stale `expected_revision` still fails. No authorization settings or scope records
+are altered. Existing v2 checkpoint files stay readable; no migration is needed.
+
+### Compare two exports without rerunning a target
+
+```bash
+python3 scripts/oliva_compare_runs.py \
+  --baseline /path/to/first/codex_metrics.json \
+  --candidate /path/to/second/codex_metrics.json \
+  --baseline-outcome completed --candidate-outcome completed \
+  --candidate-cost 0.51 --output /tmp/oliva-compare.json
+```
+
+If the verified invoice cost of the first run is unknown, omit `--baseline-cost`.
+The report will show a null comparison for dollars rather than invent it.
+Do **not** use `--same-task` for different lab machines. Reported outcomes are
+not independently verified. Cost-per-success is meaningful only across comparable
+batches that include failures; do not infer it from two successes.
+
+### MCP startup preflight (static only)
+
+```bash
+python3 scripts/oliva_mcp_preflight.py --repo .
+```
+
+This checks whether the project-level `oliva_lab` command, Python entrypoint, and
+working directory appear to exist. It does not start Codex or expose configuration
+keys. If configured only at global level, `--config ~/.codex/config.toml` can be
+used. Python 3.11+ is required for this optional TOML parser.
+
+### Guardrails, token discipline and Nesicode comparison
+
+- Prefer concise status summaries and references; expand details when necessary.
+- Before rerunning a deterministic local operation, check whether an unchanged
+  result already exists; do not suppress legitimate retries or changing state.
+- Avoid repeated checkpoint writes unless the underlying facts/decisions changed.
+- Preserve full evidence outside conversation context; never invent success.
+- Use offline synthetic tests to evaluate improvements. Inspired by Nesicode's
+  compare-and-review approach; **no autonomous self-modification or approval bypass**.
+- Codex approval requirements are separate from agent initiative. Keep them in place.
