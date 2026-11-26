@@ -19,6 +19,7 @@ from pathlib import Path
 from harness.efficiency import checkpoint as oliva_checkpoint_v2
 from harness.efficiency import visual as oliva_visual_v2
 from harness.efficiency import watch as oliva_watch_v2
+from harness.efficiency import mcp_lifecycle as oliva_mcp_lifecycle
 
 
 def schema(properties: dict[str, dict] | None = None, required: list[str] | None = None) -> dict:
@@ -237,8 +238,24 @@ def response(request: dict[str, Any]) -> dict | None:
         return {"jsonrpc": "2.0", "id": identifier, "result": {"tools": oliva_mcp_catalog.visible(TOOLS)}}
     if method == "tools/call":
         params = request.get("params") or {}
-        result = call(params.get("name", ""), params.get("arguments", {}))
-        return {"jsonrpc": "2.0", "id": identifier, "result": result}
+        # Journal a start event before calling. If the server hangs, a missing
+        # finish event pinpoints the incomplete operation without exposing data.
+        marker = None
+        failed = True
+        repo = Path(__file__).resolve().parent
+        try:
+            try:
+                marker = oliva_mcp_lifecycle.start(repo, str(params.get("name", "")))
+            except (OSError, ValueError):
+                pass  # Diagnostics must never stop an MCP request.
+            result = call(params.get("name", ""), params.get("arguments", {}))
+            failed = bool(result.get("isError", False))
+            return {"jsonrpc": "2.0", "id": identifier, "result": result}
+        finally:
+            try:
+                oliva_mcp_lifecycle.finish(repo, marker, error=failed)
+            except (OSError, ValueError):
+                pass
     return {"jsonrpc": "2.0", "id": identifier,
             "error": {"code": -32601, "message": f"Método desconocido: {method}"}}
 

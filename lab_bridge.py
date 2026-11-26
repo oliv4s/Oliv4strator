@@ -931,9 +931,10 @@ def dispatch(request: dict) -> dict:
         known = {row["attempt_id"] for row in recent_attempts(5000)}
         known |= casebook.event_ids(ROOT, identifier)
         changed = casebook.change_hypothesis(ROOT, identifier, request, known)
-        casebook.record_event(ROOT, identifier, "hypothesis", {
-            "hypothesis_id": changed["hypothesis"]["hypothesis_id"],
-            "status": changed["hypothesis"]["status"], "existing": changed["existing"]})
+        if not changed["existing"]:
+            casebook.record_event(ROOT, identifier, "hypothesis", {
+                "hypothesis_id": changed["hypothesis"]["hypothesis_id"],
+                "status": changed["hypothesis"]["status"], "existing": False})
         return changed
     if operation == "method":
         identifier = active_target_id()

@@ -94,3 +94,44 @@ used. Python 3.11+ is required for this optional TOML parser.
 - Use offline synthetic tests to evaluate improvements. Inspired by Nesicode's
   compare-and-review approach; **no autonomous self-modification or approval bypass**.
 - Codex approval requirements are separate from agent initiative. Keep them in place.
+
+## V4 - per-case temporary workspaces and MCP diagnostics
+
+Scratch files for a session should use `work/temp/<case_id>/<session_id>/`, **not** the
+shared global `/tmp`. The directory is local and Git-ignored. Its marker
+`.oliva-workspace.json` records only the case/session identity and explicitly
+retained artifacts. `scripts/oliva_workspace.py` supports:
+
+```bash
+# From repository root, before launching Codex:
+CASE_ID=10.10.10.10
+SESSION_ID=test-01
+WORKSPACE="$(python3 scripts/oliva_workspace.py init --case "$CASE_ID" --session "$SESSION_ID")"
+TMPDIR="$WORKSPACE" codex --profile deepseek
+
+# Review, retain a necessary file, then preview cleanup:
+python3 scripts/oliva_workspace.py inspect --case "$CASE_ID" --session "$SESSION_ID"
+python3 scripts/oliva_workspace.py retain --case "$CASE_ID" --session "$SESSION_ID" --file sample.txt --note "Reviewed result"
+python3 scripts/oliva_workspace.py clean --case "$CASE_ID" --session "$SESSION_ID"
+# When the session is definitely over and after 24h by default:
+python3 scripts/oliva_workspace.py clean --case "$CASE_ID" --session "$SESSION_ID" --apply
+```
+
+`TMPDIR` is inherited by child processes but does not redirect commands that
+explicitly target `/tmp`. This code never scans or deletes existing global
+`/tmp` files. Existing leftovers must be reviewed separately.
+
+The cleanup is a deliberate operator action, not an automatic post-session step;
+it refuses recent sessions, symlinks, hardlinks and unmanaged directories. Artifact
+retention copies a reviewed file to `cases/<case_id>/evidence/retained-artifacts`
+and records SHA-256 in the marker. Do not retain private keys, flags or secrets
+in an export intended for sharing. Retained artifacts can still contain sensitive
+material and should be treated as private local case data.
+
+For debugging a stalled stdio MCP tool call, launch Codex with
+`OLIVA_TRACE_MCP=1`. The local journal at
+`work/efficiency/mcp_lifecycle.jsonl` records start/end timestamps, operation
+IDs, names, duration and errors. It intentionally omits tool arguments and
+responses. An unmatched `started` entry suggests an incomplete call, but does
+not prove a deadlock or explain its root cause. `lab_hypothesis` updates use a
+short bounded POSIX advisory lock and retry-safe duplicate detection.
