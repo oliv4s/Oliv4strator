@@ -15,6 +15,10 @@ from typing import Any
 import lab_bridge
 import oliva_context
 import oliva_mcp_catalog
+from pathlib import Path
+from harness.efficiency import checkpoint as oliva_checkpoint_v2
+from harness.efficiency import visual as oliva_visual_v2
+from harness.efficiency import watch as oliva_watch_v2
 
 
 def schema(properties: dict[str, dict] | None = None, required: list[str] | None = None) -> dict:
@@ -38,6 +42,17 @@ def tool(name: str, description: str, properties: dict | None = None,
 
 TOOLS = [
     # OLIVA_OPTIMIZER_V1
+    # OLIVA_EFFICIENCY_V2
+    tool("oliva_checkpoint", "Read or save compact case checkpoint references; not authorization.",
+         {"action": {"type": "string", "enum": ["load", "save"]},
+          "case_id": {"type": "string"}, "payload": {"type": "object"},
+          "expected_revision": I, "mode": {"type": "string", "enum": ["summary", "details"]},
+          "max_items": I}),
+    tool("oliva_progress", "Summarize passive MCP repetition warnings without replaying tools.",
+         {"repeat_threshold": I}, read_only=True),
+    tool("oliva_visual", "Exact image digest lookup; does not intercept view_image.",
+         {"case_id": {"type": "string"}, "image_path": {"type": "string"},
+          "record": {"type": "boolean"}, "note": {"type": "string"}}),
     tool("oliva_context", "Snapshot compacto del caso con presupuesto estimado de tokens; no ejecuta acciones.",
          {"max_tokens": I}, read_only=True),
     tool("lab_status", "Estado del destino, servicios, intentos y foco. Empieza aquí.", read_only=True),
@@ -162,8 +177,33 @@ def call(name: str, arguments: object) -> dict:
         if name == "oliva_context":
             data = oliva_context.compact_status(
                 lab_bridge.dispatch({"operation": "status"}), arguments.get("max_tokens", 550))
+        elif canonical == "oliva_checkpoint":
+            if arguments.get("action", "load") == "save":
+                if not isinstance(arguments.get("payload"), dict):
+                    raise ValueError("payload is required for save")
+                data = oliva_checkpoint_v2.save(
+                    Path(__file__).resolve().parent, arguments["case_id"],
+                    arguments["payload"], arguments.get("expected_revision"))
+            else:
+                data = oliva_checkpoint_v2.load(
+                    Path(__file__).resolve().parent, arguments["case_id"],
+                    arguments.get("mode", "summary"), arguments.get("max_items", 10))
+        elif canonical == "oliva_progress":
+            data = oliva_watch_v2.summarize(Path(__file__).resolve().parent,
+                                            arguments.get("repeat_threshold", 3))
+        elif canonical == "oliva_visual":
+            if not isinstance(arguments.get("case_id"), str) or not isinstance(arguments.get("image_path"), str):
+                raise ValueError("case_id and image_path are required")
+            data = oliva_visual_v2.inspect(
+                Path(__file__).resolve().parent, arguments["case_id"],
+                arguments["image_path"], arguments.get("record", False),
+                arguments.get("note", ""))
         else:
             data = lab_bridge.dispatch({"operation": operation, **arguments})
+        try:
+            oliva_watch_v2.record(Path(__file__).resolve().parent, canonical, arguments, data)
+        except (OSError, ValueError, TypeError):
+            pass  # Instrumentation must not break the original tool call.
         return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                 "isError": False}
     except (OSError, ValueError, RuntimeError, KeyError, sqlite3.Error) as error:

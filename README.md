@@ -119,3 +119,7 @@ This checkout can use the read-only `oliva_context(max_tokens=550)` MCP tool for
 For a smaller MCP *discovery catalog*, launch the CLI with `OLIVA_MCP_PROFILE=LAB`, `BB-Web` or `BB-Code`; leave it unset for full backward compatibility. Restart Codex/Claude and its MCP server when changing the profile. Filtering tools from discovery does **not** enforce scope on shell or browser commands.
 
 Use `python3 oliva_eval.py examples/benchmark-harness.json` for a synthetic, offline baseline-versus-candidate quality and token-cost comparison. Actual token savings on real tasks must be measured using the model provider's token accounting. No lesson or skill is promoted automatically.
+
+## Efficiency instrumentation v2
+
+See [harness/efficiency/README.md](harness/efficiency/README.md). Optional passive MCP monitoring is off unless `OLIVA_WATCH=1`. No native Codex or Claude calls are intercepted.

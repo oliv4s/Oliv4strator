@@ -20,3 +20,5 @@ Codex CLI and Claude Code are reasoning engines; the local MCP provides case rec
 ## Compatibility and maintenance
 
 The existing `lab_*` tools (or optional `oliva_*` aliases under `OLIVA_MCP_NAMES=generic`) and LAB / BB-Web / BB-Code profile IDs are stable compatibility interfaces, **not restrictions on how the architecture can evolve**. New infrastructure components should use neutral names (`case`, `context`, `profile`, `evidence`, `method`). Do not rewrite permission rules as part of harness optimization. Edits to skills should be reviewed, tested and synchronized with `scripts/sync_skills.py` and `scripts/validate_skills.py`.
+
+On long tasks, save/resume only compact evidence-ID state with `oliva_checkpoint`; check `oliva_visual` only when a screenshot may be duplicated. Neither grants authorization. More: `harness/efficiency/README.md`.
