@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import contextmanager
+import fcntl
+import time
 import ipaddress
 import json
 import os
@@ -94,7 +97,44 @@ def _evidence(value: object, known: set[str]) -> list[str]:
     return result
 
 
+@contextmanager
+def hypothesis_lock(root: Path, target_id: str, timeout_seconds: float = 5.0):
+    """Bounded, cross-process advisory lock for hypothesis file mutations on POSIX.
+
+    Does not govern tools or external actions. A long wait fails rather than
+    blocking the entire MCP indefinitely. Lock file remains between calls.
+    """
+    parent = case_dir(root, target_id)
+    parent.mkdir(parents=True, exist_ok=True)
+    path = parent / ".hypotheses.lock"
+    if path.is_symlink():
+        raise ValueError("Hypothesis lock path must not be a symlink")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        start = time.monotonic()
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() - start > timeout_seconds:
+                    raise TimeoutError("hypothesis update busy: lock acquisition exceeded 5 seconds")
+                time.sleep(0.04)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
 def change_hypothesis(root: Path, ip: str, request: dict, known_evidence: set[str]) -> dict:
+    with hypothesis_lock(root, ip):
+        return _change_hypothesis_unlocked(root, ip, request, known_evidence)
+
+
+def _change_hypothesis_unlocked(root: Path, ip: str, request: dict, known_evidence: set[str]) -> dict:
     action = request.get("action")
     current = hypotheses(root, ip)
     if action == "propose":
@@ -113,7 +153,7 @@ def change_hypothesis(root: Path, ip: str, request: dict, known_evidence: set[st
                          row["status"] != "rejected"), None)
         if existing:
             return {"hypothesis": existing, "existing": True}
-        if sum(row["status"] in {"open", "supported"} and row.get("evidence_ids") for row in current) >= 4:
+        if sum(bool(row["status"] in {"open", "supported"} and row.get("evidence_ids")) for row in current) >= 4:
             raise ValueError("Hay cuatro hipótesis activas con evidencia; valora o cierra una antes de abrir otra")
         if len(current) >= 200:
             raise ValueError("Máximo de 200 hipótesis por caso")
@@ -132,13 +172,18 @@ def change_hypothesis(root: Path, ip: str, request: dict, known_evidence: set[st
         if status not in STATUSES:
             raise ValueError("Estado de hipótesis inválido")
         evidence = _evidence(request.get("evidence_ids", []), known_evidence)
+        note = _text(request.get("note"), "note", 8, 300)
+        # Retry-safe if the preceding call committed before Codex received it.
+        if (item["status"] == status and item.get("note", "") == note
+                and set(evidence).issubset(item.get("evidence_ids", []))):
+            return {"hypothesis": item, "existing": True}
         if status != "open" and not evidence:
             raise ValueError("Una valoración necesita evidencia nueva")
         if status != "open" and not any(identifier not in item["evidence_ids"] for identifier in evidence):
             raise ValueError("Una valoración necesita un evidence_id posterior distinto")
         item["status"] = status
         item["evidence_ids"] = list(dict.fromkeys(item["evidence_ids"] + evidence))[-20:]
-        item["note"] = _text(request.get("note"), "note", 8, 300)
+        item["note"] = note
         item["updated_at"] = now()
     else:
         raise ValueError("Usa action propose o assess")

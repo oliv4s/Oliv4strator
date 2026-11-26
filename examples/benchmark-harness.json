@@ -1,0 +1,23 @@
+{
+  "scenario_id": "synthetic-log-review",
+  "expected_claims": ["event sequence established", "uncertainty documented"],
+  "evidence_ids": ["e001", "e002"],
+  "baseline": {
+    "input_tokens": 1800,
+    "output_tokens": 500,
+    "claims": [
+      {"text": "event sequence established", "evidence_ids": ["e001"]},
+      {"text": "uncertainty documented", "evidence_ids": ["e002"]}
+    ],
+    "policy_violations": 0
+  },
+  "candidate": {
+    "input_tokens": 1000,
+    "output_tokens": 300,
+    "claims": [
+      {"text": "event sequence established", "evidence_ids": ["e001"]},
+      {"text": "uncertainty documented", "evidence_ids": ["e002"]}
+    ],
+    "policy_violations": 0
+  }
+}

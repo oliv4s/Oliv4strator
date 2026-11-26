@@ -28,7 +28,7 @@ class CodexAdapterTests(unittest.TestCase):
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-             "params": {"name": "lab_status", "arguments": {}}},
+             "params": {"name": "oliva_progress", "arguments": {}}},
         ]
         run = subprocess.run([sys.executable, str(ROOT / "codex_lab_mcp.py")],
                              input="\n".join(json.dumps(row) for row in requests) + "\n",
@@ -37,7 +37,9 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in lines], [1, 2, 3])
         self.assertEqual(lines[0]["result"]["serverInfo"]["name"], "oliv4strator-lab")
         names = {row["name"] for row in lines[1]["result"]["tools"]}
-        self.assertEqual(len(names), 29)
+        # The harness evolves; check catalogue consistency rather than a stale count.
+        self.assertEqual(names, {row["name"] for row in codex_lab_mcp.TOOLS})
+        self.assertEqual(len(names), len(codex_lab_mcp.TOOLS))
         self.assertIn("lab_scope", names)
         self.assertIn("lab_attempts", names)
         self.assertIn("lab_preflight", names)
@@ -53,7 +55,11 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertTrue(codex_lab_mcp.call("lab_scope", {"operation": "scope"})["isError"])
 
     def test_codex_config_uses_auto_profile_switches(self):
-        current = (ROOT / ".codex" / "config.toml").read_text(encoding="utf-8")
+        # config.toml is intentionally Git-ignored; git-archive only contains the template.
+        config_path = ROOT / ".codex" / "config.toml"
+        if not config_path.exists():
+            config_path = ROOT / ".codex" / "config.example.toml"
+        current = config_path.read_text(encoding="utf-8")
         configured = configure_codex.absolute_config(current)
         config = tomllib.loads(configured)
         server = config["mcp_servers"]["oliva_lab"]

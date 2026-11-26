@@ -8,11 +8,20 @@ tools; this server supplies durable scope, evidence and reporting helpers.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from typing import Any
 
 import lab_bridge
+import oliva_context
+import oliva_mcp_catalog
+from pathlib import Path
+from harness.efficiency import checkpoint as oliva_checkpoint_v2
+from harness.efficiency import visual as oliva_visual_v2
+from harness.efficiency import watch as oliva_watch_v2
+from harness.efficiency import mcp_lifecycle as oliva_mcp_lifecycle
+from harness.efficiency import artifacts as oliva_artifacts_v5
 
 
 def schema(properties: dict[str, dict] | None = None, required: list[str] | None = None) -> dict:
@@ -35,6 +44,27 @@ def tool(name: str, description: str, properties: dict | None = None,
 
 
 TOOLS = [
+    # OLIVA_OPTIMIZER_V1
+    # OLIVA_EFFICIENCY_V2
+    tool("oliva_artifact", "Keep evidence-linked local artifacts and finalize scratch at task end; defaults to launcher case/session. No target cleanup.",
+         {"action": {"type": "string", "enum": ["init", "status", "register", "finalize"]},
+          "case_id": S, "session_id": S,
+          "file": S, "disposition": {"type": "string", "enum": ["retain", "discard"]},
+          "evidence_ids": STRINGS, "note": S,
+          "outcome": {"type": "string", "enum": ["completed", "partial", "stopped"]}},
+         ["action"]),
+    tool("oliva_checkpoint", "Read or save compact case checkpoint references; not authorization.",
+         {"action": {"type": "string", "enum": ["load", "save"]},
+          "case_id": {"type": "string"}, "payload": {"type": "object"},
+          "expected_revision": I, "mode": {"type": "string", "enum": ["summary", "details"]},
+          "max_items": I}),
+    tool("oliva_progress", "Summarize passive MCP repetition warnings without replaying tools.",
+         {"repeat_threshold": I}, read_only=True),
+    tool("oliva_visual", "Exact image digest lookup; does not intercept view_image.",
+         {"case_id": {"type": "string"}, "image_path": {"type": "string"},
+          "record": {"type": "boolean"}, "note": {"type": "string"}}),
+    tool("oliva_context", "Snapshot compacto del caso con presupuesto estimado de tokens; no ejecuta acciones.",
+         {"max_tokens": I}, read_only=True),
     tool("lab_status", "Estado del destino, servicios, intentos y foco. Empieza aquí.", read_only=True),
     tool("lab_case", "Expediente del destino activo con hipótesis y eventos recientes.", read_only=True),
     tool("lab_attempts", "Historial compacto de pruebas del destino activo. Consulta antes de repetir una sonda o tras compactar contexto.",
@@ -69,8 +99,9 @@ TOOLS = [
           "refutes": S, "next_if_supported": S, "next_if_refuted": S, "pitfall": S,
           "evidence_id": S, "result": {"type": "string", "enum": ["supported", "refuted", "inconclusive"]}},
          ["action", "evidence_id", "result"]),
-    tool("lab_scope", "Perfil LAB: fija o cambia la IP o URL exacta indicada por el usuario. La nota es opcional; el prompt del usuario define el destino.",
-         {"ip": S, "url": S, "authorization_note": S}),
+    tool("lab_scope", "Perfil LAB: fija o cambia la IP o URL exacta indicada por el usuario. Opcionalmente registra alias de hostname del objetivo y una allowlist externa de descargas de solo lectura (GitHub u otros).",
+         {"ip": S, "url": S, "authorization_note": S,
+          "allowed_hosts": STRINGS, "external_allowlist": STRINGS}),
     tool("lab_program_status", "Muestra programas disponibles, política activa, tráfico realizado y límites locales opcionales.",
          read_only=True),
     tool("lab_code_status", "BB-Code: comprueba revisión Git y si el remoto origin del checkout coincide con el repositorio autorizado; no envía tráfico.",
@@ -141,19 +172,75 @@ BY_NAME = {item["name"]: item for item in TOOLS}
 
 
 def call(name: str, arguments: object) -> dict:
-    if name not in BY_NAME:
+    canonical = oliva_mcp_catalog.canonical_name(name)
+    if name not in {item["name"] for item in oliva_mcp_catalog.visible(TOOLS)}:
         return {"content": [{"type": "text", "text": f"Herramienta desconocida: {name}"}], "isError": True}
     if not isinstance(arguments, dict):
         return {"content": [{"type": "text", "text": "Argumentos JSON inválidos"}], "isError": True}
-    allowed = set(BY_NAME[name]["inputSchema"]["properties"])
+    allowed = set(BY_NAME[canonical]["inputSchema"]["properties"])
     extra = set(arguments) - allowed
     if extra:
         return {"content": [{"type": "text", "text": f"Campos no admitidos: {', '.join(sorted(extra))}"}], "isError": True}
-    operation = name.removeprefix("lab_")
+    operation = canonical.removeprefix("lab_")
     # Never accept an operation value from arguments: callers can only invoke
     # named MCP tools, not arbitrary bridge operations.
     try:
-        data = lab_bridge.dispatch({"operation": operation, **arguments})
+        if canonical == "oliva_artifact":
+            repo = Path(__file__).resolve().parent
+            case_id = arguments.get("case_id") or os.environ.get("OLIVA_CASE_ID")
+            session_id = arguments.get("session_id") or os.environ.get("OLIVA_SESSION_ID")
+            if not case_id or not session_id:
+                raise ValueError("case_id and session_id required unless using scripts/oliva_run.py")
+            action = arguments["action"]
+            if action == "init":
+                data = oliva_artifacts_v5.prepare(repo, case_id, session_id)
+            elif action == "status":
+                data = oliva_artifacts_v5.status(repo, case_id, session_id)
+            elif action == "register":
+                data = oliva_artifacts_v5.register(
+                    repo, case_id, session_id, arguments["file"],
+                    arguments["disposition"], arguments.get("evidence_ids"),
+                    arguments.get("note", ""))
+            elif action == "finalize":
+                data = oliva_artifacts_v5.finalize(
+                    repo, case_id, session_id, arguments.get("outcome", "completed"))
+                # Best effort expiration of previous quarantined sessions.
+                try:
+                    data["quarantine_housekeeping"] = oliva_artifacts_v5.prune(repo)
+                except (OSError, ValueError):
+                    data["quarantine_housekeeping"] = {"status": "unavailable"}
+            else:
+                raise ValueError("Unsupported artifact action")
+        elif name == "oliva_context":
+            data = oliva_context.compact_status(
+                lab_bridge.dispatch({"operation": "status"}), arguments.get("max_tokens", 550))
+        elif canonical == "oliva_checkpoint":
+            if arguments.get("action", "load") == "save":
+                if not isinstance(arguments.get("payload"), dict):
+                    raise ValueError("payload is required for save")
+                data = oliva_checkpoint_v2.save(
+                    Path(__file__).resolve().parent, arguments["case_id"],
+                    arguments["payload"], arguments.get("expected_revision"))
+            else:
+                data = oliva_checkpoint_v2.load(
+                    Path(__file__).resolve().parent, arguments["case_id"],
+                    arguments.get("mode", "summary"), arguments.get("max_items", 10))
+        elif canonical == "oliva_progress":
+            data = oliva_watch_v2.summarize(Path(__file__).resolve().parent,
+                                            arguments.get("repeat_threshold", 3))
+        elif canonical == "oliva_visual":
+            if not isinstance(arguments.get("case_id"), str) or not isinstance(arguments.get("image_path"), str):
+                raise ValueError("case_id and image_path are required")
+            data = oliva_visual_v2.inspect(
+                Path(__file__).resolve().parent, arguments["case_id"],
+                arguments["image_path"], arguments.get("record", False),
+                arguments.get("note", ""))
+        else:
+            data = lab_bridge.dispatch({"operation": operation, **arguments})
+        try:
+            oliva_watch_v2.record(Path(__file__).resolve().parent, canonical, arguments, data)
+        except (OSError, ValueError, TypeError):
+            pass  # Instrumentation must not break the original tool call.
         return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                 "isError": False}
     except (OSError, ValueError, RuntimeError, KeyError, sqlite3.Error) as error:
@@ -184,11 +271,27 @@ def response(request: dict[str, Any]) -> dict | None:
     if method == "ping":
         return {"jsonrpc": "2.0", "id": identifier, "result": {}}
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": identifier, "result": {"tools": TOOLS}}
+        return {"jsonrpc": "2.0", "id": identifier, "result": {"tools": oliva_mcp_catalog.visible(TOOLS)}}
     if method == "tools/call":
         params = request.get("params") or {}
-        result = call(params.get("name", ""), params.get("arguments", {}))
-        return {"jsonrpc": "2.0", "id": identifier, "result": result}
+        # Journal a start event before calling. If the server hangs, a missing
+        # finish event pinpoints the incomplete operation without exposing data.
+        marker = None
+        failed = True
+        repo = Path(__file__).resolve().parent
+        try:
+            try:
+                marker = oliva_mcp_lifecycle.start(repo, str(params.get("name", "")))
+            except (OSError, ValueError):
+                pass  # Diagnostics must never stop an MCP request.
+            result = call(params.get("name", ""), params.get("arguments", {}))
+            failed = bool(result.get("isError", False))
+            return {"jsonrpc": "2.0", "id": identifier, "result": result}
+        finally:
+            try:
+                oliva_mcp_lifecycle.finish(repo, marker, error=failed)
+            except (OSError, ValueError):
+                pass
     return {"jsonrpc": "2.0", "id": identifier,
             "error": {"code": -32601, "message": f"Método desconocido: {method}"}}
 

@@ -20,7 +20,7 @@ import focus_state
 ROOT = Path(__file__).resolve().parent.parent
 NETWORK_CLI = re.compile(r"(?:^|[;&|]\s*)(?:sudo\s+|proxychains\s+)?"
                          r"(curl|wget|nmap|ffuf|gobuster|feroxbuster|dirsearch|"
-                         r"sqlmap|nikto|wfuzz|hydra|ssh|scp|sftp|nc|netcat|ncat|ping)\b", re.I)
+                         r"sqlmap|nikto|wfuzz|hydra|ssh|scp|sftp|git|nc|netcat|ncat|ping)\b", re.I)
 CODE_NETWORK = re.compile(r"\b(?:fetch|requests\.(?:get|post|put|delete|request)|"
                           r"httpx\.(?:get|post|put|delete|request)|urllib\.request\.urlopen)\s*\(", re.I)
 URLS = re.compile(r"https?://[^\s'\"`<>()]+", re.I)
@@ -39,6 +39,20 @@ def current_scope() -> dict:
         return {}
 
 
+def read_only_external(command: str, cli_name: str) -> bool:
+    """Only permit read-only downloads from explicitly allowlisted hosts."""
+    if cli_name == "git":
+        return bool(re.search(r"\bgit\s+(?:clone|fetch|pull|ls-remote|submodule)\b", command, re.I))
+    if cli_name not in {"curl", "wget"}:
+        return False
+    if re.search(r"(?:^|\s)(?:-d|--data(?:-raw|-binary|-urlencode)?|-F|--form|-T|"
+                 r"--upload-file|-X|--request)(?:\s|=|$)", command, re.I):
+        return False
+    if re.search(r"--method\s+(?:POST|PUT|PATCH|DELETE)\b", command, re.I):
+        return False
+    return True
+
+
 def visible_scope_check(command: str, scope: dict) -> None:
     if scope.get("program_id"):
         # Native tools are part of BB-Web and BB-Code. Program rules and asset
@@ -46,11 +60,18 @@ def visible_scope_check(command: str, scope: dict) -> None:
         # arbitrary script or browser request will send traffic.
         return
     cli = NETWORK_CLI.search(command)
+    if cli and cli.group(1).lower() == "git" and not re.search(
+            r"\bgit\s+(?:clone|fetch|pull|ls-remote|submodule|push)\b", command, re.I):
+        cli = None
     coded = CODE_NETWORK.search(command)
     if not cli and not coded:
         return
     urls = [match.group().rstrip(".,;:") for match in URLS.finditer(command)]
     ip, origin = scope.get("target_ip"), scope.get("target_url")
+    allowed_hosts = {host.lower().rstrip(".") for host in scope.get("allowed_hosts") or []
+                     if isinstance(host, str)}
+    external = {host.lower().rstrip(".") for host in scope.get("external_allowlist") or []
+                if isinstance(host, str)}
     if not ip and not origin:
         if urls and all(urlsplit(url).hostname in {"localhost", "127.0.0.1"} for url in urls):
             return
@@ -59,6 +80,23 @@ def visible_scope_check(command: str, scope: dict) -> None:
         raise ValueError("Curl con redirecciones automáticas puede salir del alcance; usa lab_http.")
     if cli and cli.group(1).lower() == "wget" and "--max-redirect=0" not in command:
         raise ValueError("Wget sigue redirecciones; usa lab_http.")
+    target_urls = []
+    external_only = False
+    for url in urls:
+        host = (urlsplit(url).hostname or "").lower().rstrip(".")
+        if host not in external:
+            target_urls.append(url)
+            continue
+        cli_name = cli.group(1).lower() if cli else ""
+        if not read_only_external(command, cli_name):
+            raise ValueError(f"Acceso externo solo de lectura con curl/wget/git: {host}")
+        external_only = True
+    if external_only and not target_urls:
+        for found in IPS.findall(command):
+            if found != ip and not found.startswith("127."):
+                raise ValueError(f"IP {found} fuera del alcance activo; solicita lab_scope.")
+        return
+    urls = target_urls
     if origin:
         if cli and cli.group(1).lower() not in {"curl", "wget"}:
             raise ValueError("El destino actual es un origen web; usa lab_web_http.")
@@ -73,6 +111,10 @@ def visible_scope_check(command: str, scope: dict) -> None:
         for url in urls:
             host = urlsplit(url).hostname
             resolved = re.search(r"--resolve\s+[^\s:]+:\d+:" + re.escape(ip) + r"(?:\s|$)", command)
+            if host in allowed_hosts:
+                if resolved:
+                    continue
+                raise ValueError(f"{host} es alias del objetivo; usa --resolve {host}:PUERTO:{ip} o lab_http")
             if host not in {ip, "localhost", "127.0.0.1"} and not resolved:
                 raise ValueError(f"Host {host} fuera del alcance; usa lab_http con Host o solicita lab_scope.")
         for found in IPS.findall(command):
