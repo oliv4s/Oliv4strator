@@ -1,3 +1,11 @@
+## 2026-11-26 — v5: ciclo de vida automático de artefactos locales
+
+- Nueva herramienta MCP `oliva_artifact`: conserva evidencias referenciadas y finaliza sesiones locales.
+- Al cerrar, elimina temporales explícitos no modificados y mueve los desconocidos a una cuarentena recuperable.
+- Cuarentena mínima de siete días, expirada durante finalizaciones posteriores; sin borrar `/tmp` global ni artefactos remotos.
+- `scripts/oliva_run.py` proporciona IDs de sesión y `TMPDIR` a Codex/Claude. Las interrupciones no desencadenan limpieza.
+- Actualizados README, arquitectura, instrucciones del agente y tests offline.
+
 # Historial de Oliv4strator
 
 ## 2026-11-23 — Comprobación temprana de avisos públicos

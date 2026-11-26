@@ -86,6 +86,28 @@ def valid_ip(value: object) -> str:
     return str(ip)
 
 
+def valid_host_list(value: object, field: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 20:
+        raise ValueError(f"{field} debe ser una lista de hasta 20 nombres de host")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not 1 <= len(item) <= 253:
+            raise ValueError(f"{field} contiene un host inválido")
+        if any(char in item for char in ":/@") or item.endswith("."):
+            raise ValueError(f"{field} solo admite nombres de host, sin esquema ni ruta")
+        try:
+            host = item.encode("idna").decode("ascii").lower()
+        except UnicodeError as exc:
+            raise ValueError(f"{field} contiene un dominio inválido") from exc
+        if not all(scope_target.LABEL.fullmatch(label) for label in host.split(".")):
+            raise ValueError(f"{field} contiene un dominio inválido")
+        if host not in result:
+            result.append(host)
+    return result
+
+
 def record(operation: str, result: dict) -> dict:
     RUNS.mkdir(exist_ok=True)
     item = {"at": dt.datetime.now(dt.timezone.utc).isoformat(), "operation": operation,
@@ -397,6 +419,10 @@ def set_scope(request: dict) -> dict:
     if not note:
         note = "Destino indicado por el usuario en el prompt"
     previous = scope()
+    allowed_hosts = (valid_host_list(request.get("allowed_hosts"), "allowed_hosts")
+                     if "allowed_hosts" in request else previous.get("allowed_hosts", []))
+    external_allowlist = (valid_host_list(request.get("external_allowlist"), "external_allowlist")
+                          if "external_allowlist" in request else previous.get("external_allowlist", []))
     prior_id = scope_target.active_case_id(previous)
     identifier = ip or scope_target.web_case_id(origin)
     if ip and prior_id != identifier:
@@ -411,7 +437,9 @@ def set_scope(request: dict) -> dict:
                              {"target_ip": prior_id, "ports": services()})
     new_scope = {"profile": "LAB", "engagement_mode": "lab_machine" if ip else "web_challenge",
                  "target_ip": ip, "target_url": origin, "start_path": start_path,
-                 "authorization_note": note}
+                 "authorization_note": note,
+                 "allowed_hosts": allowed_hosts,
+                 "external_allowlist": external_allowlist}
     casebook.atomic_json(SCOPE, new_scope)
     if prior_id != identifier:
         RUNS.mkdir(exist_ok=True)

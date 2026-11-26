@@ -135,3 +135,49 @@ IDs, names, duration and errors. It intentionally omits tool arguments and
 responses. An unmatched `started` entry suggests an incomplete call, but does
 not prove a deadlock or explain its root cause. `lab_hypothesis` updates use a
 short bounded POSIX advisory lock and retry-safe duplicate detection.
+
+
+## V5 - automatic task-end artifact lifecycle
+
+V4's manual `retain` and `clean` remain available for compatibility, but the
+**normal v5 path** is an MCP operation performed by the agent at verified
+completion, without manual cleanup scripts:
+
+1. Launch the client with `python3 scripts/oliva_run.py --case <case_id> --client codex --profile deepseek` to set `TMPDIR` and session IDs.
+2. For a reusable file supported by a *real case evidence event*, call
+   `oliva_artifact(action="register", file="proof.txt", disposition="retain", evidence_ids=["<real_event_id>"])`.
+3. For clearly disposable scratch, use `oliva_artifact(action="register", file="intermediate.log", disposition="discard")`. Unknown or ambiguous files stay protected.
+4. When the task ends, no subprocesses remain, and results are checked, call
+   **once** `oliva_artifact(action="finalize", outcome="completed")`. If the
+   case is left incomplete but the session is intentionally ending, use
+   `outcome="partial"` or `"stopped"`. Repeating finalize returns the prior
+   result instead of creating duplicate operations.
+
+**What actually happens:** retained evidence is copied with SHA-256 into
+`cases/<case_id>/evidence/retained-artifacts/`; unchanged explicit disposable
+files are removed; everything else is atomically moved to
+`work/quarantine/<case_id>/<session_id>/` and can be recovered. Quarantines
+are eligible for expiry after **7 days** and are pruned on later finalizations;
+there is no timer/background daemon. This is a bounded local filesystem
+operation, not remote host cleanup.
+
+**Failure and security semantics:** if Codex is interrupted or the agent omits
+`finalize`, nothing is auto-deleted; old content remains in `work/temp`.
+Refuse symlinks, hardlinks, device files, invalid paths, changed disposables,
+missing/invalid evidence IDs, and tampered retained copies. Only registered
+and unchanged disposables are deleted immediately. If retained evidence changes
+since registration, finalization fails safely until it is re-registered.
+No implicit approval escalation or bypass of Codex sandbox is performed.
+
+Manual CLI inspection and emergency restore remain possible:
+
+```bash
+python3 scripts/oliva_workspace.py status --case <case_id> --session <session_id>
+python3 scripts/oliva_workspace.py restore --case <case_id> --session <session_id>
+```
+
+Run `python3 -m unittest discover -s scripts -p 'test_*.py' -q` before committing.
+The v5 lifecycle introduces no new LLM calls beyond the single end-of-task
+MCP call and selective artifact registrations. Whether it saves tokens must
+be validated against comparable tasks; unrelated lab difficulty changes do
+not establish causality.

@@ -8,6 +8,7 @@ tools; this server supplies durable scope, evidence and reporting helpers.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from typing import Any
@@ -20,6 +21,7 @@ from harness.efficiency import checkpoint as oliva_checkpoint_v2
 from harness.efficiency import visual as oliva_visual_v2
 from harness.efficiency import watch as oliva_watch_v2
 from harness.efficiency import mcp_lifecycle as oliva_mcp_lifecycle
+from harness.efficiency import artifacts as oliva_artifacts_v5
 
 
 def schema(properties: dict[str, dict] | None = None, required: list[str] | None = None) -> dict:
@@ -44,6 +46,13 @@ def tool(name: str, description: str, properties: dict | None = None,
 TOOLS = [
     # OLIVA_OPTIMIZER_V1
     # OLIVA_EFFICIENCY_V2
+    tool("oliva_artifact", "Keep evidence-linked local artifacts and finalize scratch at task end; defaults to launcher case/session. No target cleanup.",
+         {"action": {"type": "string", "enum": ["init", "status", "register", "finalize"]},
+          "case_id": S, "session_id": S,
+          "file": S, "disposition": {"type": "string", "enum": ["retain", "discard"]},
+          "evidence_ids": STRINGS, "note": S,
+          "outcome": {"type": "string", "enum": ["completed", "partial", "stopped"]}},
+         ["action"]),
     tool("oliva_checkpoint", "Read or save compact case checkpoint references; not authorization.",
          {"action": {"type": "string", "enum": ["load", "save"]},
           "case_id": {"type": "string"}, "payload": {"type": "object"},
@@ -90,8 +99,9 @@ TOOLS = [
           "refutes": S, "next_if_supported": S, "next_if_refuted": S, "pitfall": S,
           "evidence_id": S, "result": {"type": "string", "enum": ["supported", "refuted", "inconclusive"]}},
          ["action", "evidence_id", "result"]),
-    tool("lab_scope", "Perfil LAB: fija o cambia la IP o URL exacta indicada por el usuario. La nota es opcional; el prompt del usuario define el destino.",
-         {"ip": S, "url": S, "authorization_note": S}),
+    tool("lab_scope", "Perfil LAB: fija o cambia la IP o URL exacta indicada por el usuario. Opcionalmente registra alias de hostname del objetivo y una allowlist externa de descargas de solo lectura (GitHub u otros).",
+         {"ip": S, "url": S, "authorization_note": S,
+          "allowed_hosts": STRINGS, "external_allowlist": STRINGS}),
     tool("lab_program_status", "Muestra programas disponibles, política activa, tráfico realizado y límites locales opcionales.",
          read_only=True),
     tool("lab_code_status", "BB-Code: comprueba revisión Git y si el remoto origin del checkout coincide con el repositorio autorizado; no envía tráfico.",
@@ -175,7 +185,33 @@ def call(name: str, arguments: object) -> dict:
     # Never accept an operation value from arguments: callers can only invoke
     # named MCP tools, not arbitrary bridge operations.
     try:
-        if name == "oliva_context":
+        if canonical == "oliva_artifact":
+            repo = Path(__file__).resolve().parent
+            case_id = arguments.get("case_id") or os.environ.get("OLIVA_CASE_ID")
+            session_id = arguments.get("session_id") or os.environ.get("OLIVA_SESSION_ID")
+            if not case_id or not session_id:
+                raise ValueError("case_id and session_id required unless using scripts/oliva_run.py")
+            action = arguments["action"]
+            if action == "init":
+                data = oliva_artifacts_v5.prepare(repo, case_id, session_id)
+            elif action == "status":
+                data = oliva_artifacts_v5.status(repo, case_id, session_id)
+            elif action == "register":
+                data = oliva_artifacts_v5.register(
+                    repo, case_id, session_id, arguments["file"],
+                    arguments["disposition"], arguments.get("evidence_ids"),
+                    arguments.get("note", ""))
+            elif action == "finalize":
+                data = oliva_artifacts_v5.finalize(
+                    repo, case_id, session_id, arguments.get("outcome", "completed"))
+                # Best effort expiration of previous quarantined sessions.
+                try:
+                    data["quarantine_housekeeping"] = oliva_artifacts_v5.prune(repo)
+                except (OSError, ValueError):
+                    data["quarantine_housekeeping"] = {"status": "unavailable"}
+            else:
+                raise ValueError("Unsupported artifact action")
+        elif name == "oliva_context":
             data = oliva_context.compact_status(
                 lab_bridge.dispatch({"operation": "status"}), arguments.get("max_tokens", 550))
         elif canonical == "oliva_checkpoint":

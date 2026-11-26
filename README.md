@@ -22,6 +22,51 @@ Oliva consulta el estado y los intentos anteriores antes de probar otra vía, ve
 
 Las skills enseñan métodos reutilizables, no soluciones por máquina. `memory/` conserva observaciones locales entre sesiones. Las mejoras generales se incorporan a `.agents/skills/` y se copian a Claude con `python3 scripts/sync_skills.py`.
 
+## Arquitectura modular y ciclo de vida (v5)
+
+```text
+Codex CLI / Claude Code CLI
+    │  AGENTS.md + perfil bajo demanda + skills
+    ▼
+MCP local: codex_lab_mcp.py
+    ├── autorización y herramientas del caso (núcleo existente)
+    ├── oliva_context / checkpoint / progress (eficiencia)
+    └── oliva_artifact (v5, ciclo de vida LOCAL)
+              │
+              ├── work/temp/<case_id>/<session_id>/   [activo]
+              │        ├── PoC / evidencias verificadas ──► cases/<case_id>/evidence/retained-artifacts/
+              │        ├── scratch marcado como discard ──► eliminación tras finalizar
+              │        └── archivos no clasificados ──────► work/quarantine/<case_id>/<session_id>/
+              │
+              └── al finalizar: resumen compacto + cierre idempotente
+```
+
+**La autorización, el modelo, la memoria y el almacenamiento tienen responsabilidades separadas.** El gestor de artefactos solo administra archivos **locales** del workspace que creó Oliv4strator. Nunca modifica `/tmp` global, sistemas objetivos ni el alcance de un programa. Los alias `lab_*` siguen disponibles por compatibilidad; el núcleo nuevo utiliza nombres `oliva_*` independientes de LAB, BB-Web y BB-Code.
+
+### Inicio sencillo de una sesión con temporales propios
+
+```bash
+cd /home/kali/00_Tools/oliv4strator
+python3 scripts/oliva_run.py --case 10.10.10.10 --client codex --profile deepseek
+```
+
+El lanzador crea una sesión única y exporta `TMPDIR`, `OLIVA_WORKSPACE`, `OLIVA_CASE_ID` y `OLIVA_SESSION_ID` al cliente. Para Claude sustituye `--client codex --profile deepseek` por `--client claude`. Los programas que usen rutas `/tmp/...` explícitas seguirán fuera del workspace administrado.
+
+### Limpieza al terminar: sin scripts manuales
+
+La instrucción permanente en `AGENTS.md` indica al agente que, **solo tras terminar la tarea y dejar de ejecutar procesos locales**, invoque una vez `oliva_artifact(action="finalize", outcome="completed")`. El gestor entonces:
+
+1. Comprueba el marcador, las rutas y la integridad de las evidencias retenidas.
+2. Elimina únicamente temporales registrados expresamente como `discard` cuyo contenido no haya cambiado.
+3. Retira el directorio de trabajo activo y lo traslada a una **cuarentena recuperable** con los archivos sin clasificación o de los que existen copias conservadas.
+4. Devuelve un resumen pequeño, sin volcar las evidencias al contexto.
+
+La copia útil permanece en `cases/<case_id>/evidence/retained-artifacts/` con SHA-256 y referencias `evidence_id`. La cuarentena se mantiene **al menos siete días**; su eliminación se comprueba automáticamente en cierres posteriores, sin servicio en segundo plano. Si no vuelve a haber actividad, permanecerá hasta una ejecución de mantenimiento. Puede restaurarse con `python3 scripts/oliva_workspace.py restore --case ... --session ...`.
+
+**El cierre depende de una llamada MCP explícita del agente.** Un proceso cancelado o una salida inesperada de Codex *no desencadena limpieza automática*, para no perder trabajo pendiente. El agente debe registrar primero qué PoC, scripts e informes son realmente necesarios; los archivos desconocidos se preservan provisionalmente. Ninguna de estas reglas modifica los permisos de Codex: las aprobaciones reales del cliente siguen vigentes.
+
+Para una máquina más compleja, prioriza conservar progreso y evidencias durante varios checkpoints en lugar de forzar un cierre al primer hito. Consulta [el diseño y limitaciones de v5](harness/efficiency/README.md).
+
 ## Cómo aprende Oliva
 
 Cada ejecución deja intentos, controles, hipótesis y PoC en su expediente `cases/`. Al documentar un hallazgo web o de código, el bridge devuelve un `evidence_id`. Oliva revisa los resultados con `lab_review`, que señala `learning_candidates`, y usa `lab_method` para guardar o contrastar una pauta **transferible** en `memory/methods.json`. En BB-Code puede clasificarla como `code_review`. Una pauta nueva empieza como candidata; las observaciones posteriores pueden apoyarla o refutarla.
