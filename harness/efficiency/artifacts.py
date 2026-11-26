@@ -260,7 +260,7 @@ def restore(repo: Path, case_id: str, session_id: str) -> dict:
         return {'workspace': str(root), 'state': 'active', 'restored': True}
 
 
-def prune(repo: Path, *, min_age_days: int = QUARANTINE_DAYS) -> dict:
+def prune(repo: Path, *, min_age_days: int = QUARANTINE_DAYS, dry_run: bool = False) -> dict:
     """Expire only well-formed quarantined sessions, during explicit maintenance.
 
     No timer, background process or global filesystem deletion.
@@ -269,9 +269,9 @@ def prune(repo: Path, *, min_age_days: int = QUARANTINE_DAYS) -> dict:
         raise ValueError(f'min_age_days must be at least {QUARANTINE_DAYS}')
     home = Path(os.path.abspath(repo)) / 'work' / 'quarantine'
     if not home.exists():
-        return {'expired': 0, 'skipped': 0}
+        return {'expired': 0, 'eligible': 0, 'skipped': 0}
     workspace._directory(home)
-    expired, skipped = 0, 0
+    expired, eligible, skipped = 0, 0, 0
     for case_folder in home.iterdir():
         if case_folder.is_symlink() or not case_folder.is_dir():
             skipped += 1
@@ -300,8 +300,11 @@ def prune(repo: Path, *, min_age_days: int = QUARANTINE_DAYS) -> dict:
                     import shutil
                     if not shutil.rmtree.avoids_symlink_attacks:
                         raise ValueError('safe directory deletion unavailable on this platform')
-                    shutil.rmtree(folder)
-                    expired += 1
+                    if dry_run:
+                        eligible += 1
+                    else:
+                        shutil.rmtree(folder)
+                        expired += 1
             except (ValueError, OSError, KeyError, TimeoutError):
                 skipped += 1
-    return {'expired': expired, 'skipped': skipped}
+    return {'expired': expired, 'eligible': eligible, 'skipped': skipped}

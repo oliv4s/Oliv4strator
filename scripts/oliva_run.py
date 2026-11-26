@@ -17,6 +17,24 @@ sys.path.insert(0, str(ROOT))
 from harness.efficiency import artifacts
 
 
+
+def report_local_session(repo: Path, case_id: str, session_id: str) -> None:
+    """Report local artifact state on client exit; never finalize automatically."""
+    try:
+        state = artifacts.status(repo, case_id, session_id)
+        print(f'Oliva workspace: {state["state"]} | case={case_id} | session={session_id}',
+              file=sys.stderr)
+        if state['state'] == 'active':
+            print('Workspace retained: task may be incomplete. Review before finalization.',
+                  file=sys.stderr)
+        elif state['state'] == 'finalized':
+            print(f'Artifacts: retained={state.get("retained", 0)} '
+                  f'discarded={state.get("discarded", 0)} '
+                  f'quarantined={state.get("quarantined", 0)}', file=sys.stderr)
+    except (OSError, ValueError, KeyError) as error:
+        print(f'Oliva workspace status unavailable: {error}', file=sys.stderr)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', required=True, dest='case_id')
@@ -42,6 +60,8 @@ def main() -> int:
     except FileNotFoundError:
         print(f'Missing executable: {args.client}', file=sys.stderr)
         return 127
+    finally:
+        report_local_session(ROOT, args.case_id, session)
     # Never finalize on Ctrl-C/crash/normal process exit: explicit task-end
     # verification is required. Scratch remains intact for resumption.
 

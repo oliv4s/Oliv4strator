@@ -1,3 +1,9 @@
+## 2026-11-26 - v5.1: mantenimiento y privacidad
+
+- Perfiles reales de programas fuera del repositorio; pruebas de politica con fixtures ficticios.
+- README breve y guias separadas de arquitectura y mantenimiento.
+- Inventario local de sesiones y previsualizacion segura de caducidad de cuarentena.
+
 ## 2026-11-26 — v5: ciclo de vida automático de artefactos locales
 
 - Nueva herramienta MCP `oliva_artifact`: conserva evidencias referenciadas y finaliza sesiones locales.
@@ -29,12 +35,6 @@
 - El agente recorre hipótesis con controles y variantes observables; la PoC mínima limita la validación final de cada hallazgo, no la exploración completa.
 - Perfiles con identidad local pueden aplicar cabeceras obligatorias sin incluir el investigador en Git.
 - La extracción de rutas JavaScript y las señales de respuesta HTTP cubren más casos sin aumentar el número de solicitudes.
-
-## 2026-11-16 — Perfil CyberGhost
-
-- Perfil público para los cinco scopes web/API, con subdominios comodín sin incluir implícitamente el dominio raíz.
-- Los otros siete scopes de apps, extensiones y servidores VPN quedan documentados para un flujo posterior, sin autorizar escaneos IP con el MCP web.
-- El identificador obligatorio se añade al User-Agent; el perfil se activa tras revisar la política vigente.
 
 ## 2026-11-16 — Codex CLI y Claude Code CLI
 

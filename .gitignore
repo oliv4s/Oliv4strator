@@ -8,6 +8,8 @@
 /recon/
 /cohort/
 /outputs/
+# Solo los ejemplos ficticios se versionan.
+# Git no deja de seguir archivos previamente registrados por estar ignorados.
 /programs/*
 !/programs/demo-program/
 !/programs/demo-code/
