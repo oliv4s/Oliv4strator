@@ -22,6 +22,9 @@ from harness.efficiency import visual as oliva_visual_v2
 from harness.efficiency import watch as oliva_watch_v2
 from harness.efficiency import mcp_lifecycle as oliva_mcp_lifecycle
 from harness.efficiency import artifacts as oliva_artifacts_v5
+from harness.efficiency import research as oliva_research_v52
+from harness.efficiency import output_manager as oliva_output_v52
+from harness.efficiency import approvals as oliva_approvals_v52
 
 
 def schema(properties: dict[str, dict] | None = None, required: list[str] | None = None) -> dict:
@@ -37,10 +40,11 @@ STRINGS = {"type": "array", "items": S}
 
 
 def tool(name: str, description: str, properties: dict | None = None,
-         required: list[str] | None = None, read_only: bool = False) -> dict:
+         required: list[str] | None = None, read_only: bool = False,
+         open_world: bool = False) -> dict:
     return {"name": name, "description": description,
             "inputSchema": schema(properties, required),
-            "annotations": {"readOnlyHint": read_only, "openWorldHint": False}}
+            "annotations": {"readOnlyHint": read_only, "openWorldHint": open_world}}
 
 
 TOOLS = [
@@ -53,6 +57,15 @@ TOOLS = [
           "evidence_ids": STRINGS, "note": S,
           "outcome": {"type": "string", "enum": ["completed", "partial", "stopped"]}},
          ["action"]),
+    tool("oliva_research", "Read-only public NVD CVE lookup, GitHub advisories or public repository metadata. Cached. No arbitrary URL, exploit download or target traffic.",
+         {"source": {"type": "string", "enum": ["nvd", "github_advisory", "github_repo"]},
+          "cve_id": S, "keyword": S, "repository": S}, ["source"], read_only=True, open_world=True),
+    tool("oliva_output", "Read bounded preview/lines of a text output already saved in the managed case workspace.",
+         {"file": S, "case_id": S, "session_id": S,
+          "mode": {"type": "string", "enum": ["summary", "lines"]},
+          "start_line": I, "max_lines": I}, ["file"], read_only=True),
+    tool("oliva_diagnostics", "Aggregate anonymized hook denial categories. Native Codex permission prompts are not observable here.",
+         read_only=True),
     tool("oliva_checkpoint", "Read or save compact case checkpoint references; not authorization.",
          {"action": {"type": "string", "enum": ["load", "save"]},
           "case_id": {"type": "string"}, "payload": {"type": "object"},
@@ -211,6 +224,29 @@ def call(name: str, arguments: object) -> dict:
                     data["quarantine_housekeeping"] = {"status": "unavailable"}
             else:
                 raise ValueError("Unsupported artifact action")
+        elif canonical == "oliva_research":
+            data = oliva_research_v52.lookup(
+                Path(__file__).resolve().parent, arguments["source"],
+                cve_id=arguments.get("cve_id", ""), keyword=arguments.get("keyword", ""),
+                repository=arguments.get("repository", ""))
+        elif canonical == "oliva_output":
+            repo = Path(__file__).resolve().parent
+            case_id = arguments.get("case_id") or os.environ.get("OLIVA_CASE_ID")
+            session_id = arguments.get("session_id") or os.environ.get("OLIVA_SESSION_ID")
+            if not case_id or not session_id:
+                raise ValueError("case_id and session_id required without oliva_run")
+            # A launcher-scoped session may not read another case's scratch.
+            if os.environ.get("OLIVA_CASE_ID") and case_id != os.environ["OLIVA_CASE_ID"]:
+                raise ValueError("case_id must match active launcher scope")
+            if os.environ.get("OLIVA_SESSION_ID") and session_id != os.environ["OLIVA_SESSION_ID"]:
+                raise ValueError("session_id must match active launcher scope")
+            data = oliva_output_v52.inspect(
+                repo, case_id, session_id, arguments["file"],
+                mode=arguments.get("mode", "summary"),
+                start_line=arguments.get("start_line", 1),
+                max_lines=arguments.get("max_lines", 30))
+        elif canonical == "oliva_diagnostics":
+            data = oliva_approvals_v52.summary(Path(__file__).resolve().parent)
         elif name == "oliva_context":
             data = oliva_context.compact_status(
                 lab_bridge.dispatch({"operation": "status"}), arguments.get("max_tokens", 550))
@@ -243,7 +279,7 @@ def call(name: str, arguments: object) -> dict:
             pass  # Instrumentation must not break the original tool call.
         return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                 "isError": False}
-    except (OSError, ValueError, RuntimeError, KeyError, sqlite3.Error) as error:
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError, IndexError, sqlite3.Error) as error:
         return {"content": [{"type": "text", "text": str(error)[:1200]}], "isError": True}
 
 
@@ -266,7 +302,10 @@ def response(request: dict[str, Any]) -> dict | None:
                 "El MCP aplica las cabeceras de identidad requeridas por el perfil. "
                 "Consulta lab_attempts antes de repetir pruebas; "
                 "lab_preflight verifica rutas y listeners de callback. El foco es orientativo. "
-                "Las herramientas nativas conservan la libertad de investigación y deben respetar el alcance."
+                "Use oliva_research for public NVD and GitHub reference metadata; it is distinct from target scope. "
+                "Do not expand target scope for reference sites or download/execute third-party code without review. "
+                "Use oliva_output for bounded results already saved in the managed workspace. "
+                "Client permission prompts remain authoritative."
             )}}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": identifier, "result": {}}

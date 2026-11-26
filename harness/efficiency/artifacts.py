@@ -111,6 +111,8 @@ def status(repo: Path, case_id: str, session_id: str) -> dict:
                 'retained': len(marker.get('retained', [])),
                 'quarantined': marker.get('quarantined_count', None),
                 'discarded': len(marker.get('discarded_files', [])),
+                'outcome': marker.get('outcome'),
+                'finalized_at': marker.get('finalized_at'),
                 'recovery_path': str(archived)}
     if active.exists():
         marker = workspace._marker(active, case_id, session_id)
@@ -239,8 +241,22 @@ def finalize(repo: Path, case_id: str, session_id: str,
         workspace._directory(archived.parent, create=True)
         # Atomic within same repo filesystem; no deletion of unclassified files.
         os.rename(root, archived)
-        return {**status(repo, case_id, session_id), 'already_finalized': False,
-                'outcome': outcome}
+        # Durable, non-sensitive counts for later audit. Finalization has already
+        # committed atomically; failure to write this secondary report must not
+        # turn a successful finalization into an ambiguous client error.
+        final = {**status(repo, case_id, session_id), 'already_finalized': False,
+                 'outcome': outcome}
+        try:
+            report_path = (casebook.case_dir(Path(repo), case_id) / 'session-reports' /
+                           (safe_id(session_id) + '.json'))
+            # Never store paths, command output, credentials or file contents.
+            atomic_json(report_path, {key: final.get(key) for key in
+                ('case_id', 'session_id', 'state', 'outcome', 'finalized_at',
+                 'retained', 'discarded', 'quarantined')})
+            final['report_saved'] = True
+        except (OSError, ValueError):
+            final['report_saved'] = False
+        return final
 
 
 def restore(repo: Path, case_id: str, session_id: str) -> dict:

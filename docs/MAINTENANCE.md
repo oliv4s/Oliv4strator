@@ -56,3 +56,21 @@ python3 scripts/oliva_workspace.py clean --case CASE_ID --session SESSION_ID
 ## 6. Datos publicados accidentalmente
 
 Los perfiles reales bajo `programs/` estan ignorados, pero Git puede seguir archivos agregados antes de configurar `.gitignore`. Revisa `git ls-files programs/`, y retira los perfiles particulares del indice sin incluirlos en futuros commits. Esto **no reescribe** el historial ya publicado; si hubo secretos, revocalos y planifica una limpieza del historial por separado.
+
+## Informe de cierre v5.2
+
+Cuando `oliva_artifact(action="finalize")` termina, se guarda un resumen de recuentos en
+`cases/<case_id>/session-reports/<session_id>.json` (carpeta ignorada por Git).
+Incluye `retained`, `discarded`, `quarantined`, resultado y fecha. No guarda
+argumentos de comandos ni salidas completas. Si una interrupcion ocurre antes
+del cierre, el workspace permanece activo.
+
+`oliva_diagnostics` resume los bloqueos causados por el hook local. **No**
+registra ni evita los permisos obligatorios del cliente Codex o Claude.
+
+## Consulta documental y salidas largas
+
+- `oliva_research`: NVD y advisories oficiales con cache local de 6 h y limites de peticiones.
+- `oliva_output`: lectura por fragmentos de logs de texto bajo el workspace de la sesion.
+- No usar `lab_scope` para incorporar fuentes publicas; el alcance se reserva para el objetivo.
+- Descargar o ejecutar herramientas de terceros continua separado y requiere revision.

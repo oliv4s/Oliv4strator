@@ -1,3 +1,11 @@
+## v5.2 - Research references, bounded outputs and diagnostics
+
+- Added `oliva_research` for public NVD/GitHub advisory reference metadata and public GitHub repository metadata with strict endpoint allowlisting, no redirects, 6-hour cache and bounded responses. No target-scope expansion or code execution.
+- Added `oliva_output` for bounded reading of text files already saved in a managed case workspace; native Codex exec is not intercepted.
+- Added anonymized hook-denial diagnostics (`oliva_diagnostics`); client-native approvals remain outside this telemetry.
+- Finalization writes an evidence-free counts report to the private case directory, retaining idempotence.
+- Expanded user-facing README and architecture notes. Changes are designed for a separate feature branch.
+
 ## 2026-11-26 - v5.1: mantenimiento y privacidad
 
 - Perfiles reales de programas fuera del repositorio; pruebas de politica con fixtures ficticios.

@@ -30,11 +30,17 @@ Sustituye `CASE_ID` por el identificador local del expediente autorizado. Para C
 
 Los ejemplos `programs/demo-program/` y `programs/demo-code/` son ficticios. Los perfiles de programas reales y sus reglas se guardan **solo localmente**, fuera de Git. No utilices un ejemplo como autorización real.
 
+## Consulta de CVEs y resultados compactos
+
+`oliva_research` consulta automaticamente metadatos publicos de **NVD**, **GitHub Advisories** y repositorios publicos GitHub (sin modificar el alcance de la evaluacion). Las respuestas son cortas, citan la fuente y se guardan temporalmente en cache. No descarga ni ejecuta herramientas; el codigo externo requiere revision y aprobacion independientes.
+
+`oliva_output` permite leer fragmentos de archivos de salida largos guardados en el workspace del caso, sin enviar todo el log al modelo. No intercepta las herramientas nativas de Codex. `oliva_diagnostics` informa de bloqueos del hook sin revelar comandos o secretos; las aprobaciones nativas de Codex siguen siendo independientes.
+
 ## Sesiones, evidencias y limpieza
 
 - Cada sesión usa `work/temp/<case>/<session>/`.
 - El agente puede registrar evidencias verificadas para conservarlas en `cases/<case>/evidence/retained-artifacts/`.
-- Tras finalizar de forma controlada, `oliva_artifact(finalize)` elimina los temporales explícitamente descartables que no hayan cambiado y mueve los desconocidos a `work/quarantine/`.
+- Tras finalizar de forma controlada, `oliva_artifact(finalize)` genera un resumen en `cases/<case>/session-reports/`, elimina los temporales explícitamente descartables que no hayan cambiado y mueve los desconocidos a `work/quarantine/`.
 - **Si Codex/Claude se interrumpe, no se borra nada automáticamente.** La cuarentena se mantiene al menos siete días y puede restaurarse.
 
 ```bash

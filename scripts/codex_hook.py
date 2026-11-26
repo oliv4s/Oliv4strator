@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import casebook
+from harness.efficiency import approvals as hook_approvals
 import focus_state
 
 
@@ -144,6 +145,10 @@ def handle(phase: str, item: dict) -> dict | None:
         try:
             visible_scope_check(command, scope)
         except (ValueError, OSError) as error:
+            try:
+                hook_approvals.record(ROOT, str(error))
+            except (ValueError, OSError):
+                pass
             return denied(str(error))
         return None
     if phase == "post" and target_id:

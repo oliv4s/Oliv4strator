@@ -12,6 +12,9 @@ MCP (codex_lab_mcp.py) / CLI adapters
     +-- contexto compacto: oliva_context.py
     +-- checkpoint y telemetria: harness/efficiency/
     +-- ciclo de vida local: oliva_artifact, workspace.py, artifacts.py
+    +-- investigacion publica: oliva_research -> NVD / GitHub Advisories (solo lectura)
+    +-- observabilidad: oliva_diagnostics (bloqueos del hook anonimos)
+    +-- salida compacta: oliva_output (lectura acotada de archivos en workspace)
     v
 cases/<case_id>/         - expediente, eventos, pruebas retenidas
 memory/                  - lecciones generales (locales)
@@ -52,3 +55,11 @@ Mantenimiento -> previsualizacion; purga de cuarentenas >= 7 dias
 - La gestion de alcance y de permisos permanece independiente de los scripts de mantenimiento.
 
 Ver [Mantenimiento](MAINTENANCE.md) para operaciones de recuperacion y limpieza.
+
+## Eficiencia v5.2
+
+- `oliva_research` consulta fuentes publicas **predefinidas** para CVEs y metadatos de repositorios. No amplía `scope.json`, no permite URLs arbitrarias y no descarga herramientas. Tiene cache de 6 horas en `work/research-cache`.
+- `oliva_output` lee, mediante rutas relativas, archivos de texto **ya existentes** en el workspace de la sesion; no intercepta `exec_command` ni ejecuta comandos. Es el agente quien decide guardar salidas largas en su workspace.
+- `oliva_diagnostics` resume categorías de denegaciones del hook, sin argumentos. Las aprobaciones internas de Codex no están disponibles para este registro y siguen vigentes.
+- `oliva_artifact(finalize)` genera un resumen de cierre con recuentos en `cases/<case>/session-reports/`. Una sesión interrumpida conserva el workspace.
+- El contenido obtenido de la red es no confiable y nunca dicta instrucciones ni autoriza ampliar el alcance del objetivo.

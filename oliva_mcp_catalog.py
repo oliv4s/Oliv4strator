@@ -9,7 +9,7 @@ import os
 
 COMMON = {
     "oliva_checkpoint", "oliva_artifact", "oliva_visual", "oliva_progress",
-    "oliva_context", "lab_status", "lab_case", "lab_attempts", "lab_review",
+    "oliva_context", "oliva_research", "oliva_output", "oliva_diagnostics", "lab_status", "lab_case", "lab_attempts", "lab_review",
     "lab_hypothesis", "lab_focus", "lab_memory", "lab_method", "lab_text",
     "lab_evidence", "lab_scope", "lab_program_status", "lab_program_check",
     "lab_program_activate",
@@ -25,7 +25,7 @@ PROFILE_TOOLS = {
 
 def canonical_name(name: str) -> str:
     """Map a public, generic oliva_* alias onto the stable legacy name."""
-    if name in {"oliva_context", "oliva_checkpoint", "oliva_artifact", "oliva_visual", "oliva_progress"}:
+    if name in {"oliva_context", "oliva_checkpoint", "oliva_artifact", "oliva_visual", "oliva_progress", "oliva_research", "oliva_output", "oliva_diagnostics"}:
         return name
     if name.startswith("oliva_"):
         return "lab_" + name.removeprefix("oliva_")
